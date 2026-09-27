@@ -1,0 +1,93 @@
+# Hardware test config: Waveshare ESP32-S3-ETH (W5500 over SPI), ESP-IDF 6.1.0,
+# IPv6-only Ethernet. Same pins as esphome-config's common/eth.yaml.
+#
+#   esphome run s3-eth-test.yaml --device <current IP or /dev/cu.usbmodem...>
+#
+# What to look for in the log, in order:
+#   [ethernet] [Ethernet event] ETH connected
+#   [ethernet] IPv6 address fe80::...              <- link-local, created on link-up
+#   [ethernet] IPv6 address fd../2xxx::...         <- SLAAC, so RAs got through
+#   [ethernet] Connected, with IP Address 0.0.0.0 and "IPv6 Router: fe80::... lifetime N s"
+#   [sntp] Synchronized time: ...
+# One "E esp_netif_handlers: invalid static ip" per link-up is expected.
+# Home Assistant should discover the node over mDNS (AAAA) and connect on v6.
+substitutions:
+  name: ipv6-s3-eth-test
+
+esphome:
+  name: ${name}
+
+esp32:
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: 6.1.0
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [ethernet, ethernet_info, sntp]
+    # or: source: github://davidcoulson/esphome-ipv6-only@main
+
+network:
+  enable_ipv6: true
+  min_ipv6_addr_count: 2
+
+ethernet:
+  type: W5500
+  mosi_pin: GPIO11
+  miso_pin: GPIO12
+  clk_pin: GPIO13
+  cs_pin: GPIO14
+  reset_pin: GPIO9
+  interrupt_pin: GPIO10
+  clock_speed: 25MHz
+  ipv6_only: true
+  # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
+  # use_address: "[2001:db8::...]"
+
+logger:
+  # VERBOSE so link up/down shows as "[Ethernet event] ETH connected/disconnected".
+  level: VERBOSE
+  logs:
+    api: DEBUG
+    api.connection: DEBUG
+    api.socket: DEBUG
+    component: DEBUG
+    scheduler: DEBUG
+    sensor: DEBUG
+    text_sensor: DEBUG
+    esp32.preferences: DEBUG
+    mdns: DEBUG
+
+api:
+  encryption:
+    key: !secret api_key
+  # Ethernet node: no Wi-Fi reboot_timeout, so this is the recovery path.
+  reboot_timeout: 300s
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+time:
+  - platform: sntp
+    servers: [2.pool.ntp.org]
+
+debug:
+  update_interval: 60s
+
+text_sensor:
+  - platform: ethernet_info
+    ip_address:
+      name: IP address
+      ignore_link_local: true
+  - platform: debug
+    reset_reason:
+      name: Reset reason
+
+button:
+  - platform: restart
+    name: Restart
