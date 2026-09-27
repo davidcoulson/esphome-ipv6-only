@@ -1,0 +1,88 @@
+# Hardware test config: Waveshare ESP32-P4-ETH (internal EMAC + IP101), ESP-IDF 6.1.0,
+# IPv6-only Ethernet.
+#
+#   esphome run p4-eth-test.yaml --device <current IP or /dev/cu.usbmodem...>
+#
+# What to look for in the log, in order:
+#   [ethernet] ETH connected
+#   [ethernet] IPv6 link-local fe80::... ready     <- created on link-up
+#   [ethernet] IPv6 address fd../2xxx::...         <- SLAAC, so RAs got through
+#   no DHCPv4 lease, no 0.0.0.0 in the dump; "IPv6 Router: fe80::... lifetime N s"
+#   [sntp] Synchronized time: ...
+# Home Assistant should discover the node over mDNS (AAAA) and connect on v6.
+#
+# CHIP REVISION: engineering_sample: true builds for pre-v3 P4 silicon (the original
+# ESP32-P4-ETH). v3.x silicon will not boot that image: check with `esptool chip_id` and
+# drop the flag if so.
+substitutions:
+  name: ipv6-p4-eth-test
+
+esphome:
+  name: ${name}
+
+esp32:
+  board: esp32-p4-evboard
+  variant: esp32p4
+  engineering_sample: true
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: 6.1.0
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [ethernet, ethernet_info, sntp]
+    # or: source: github://davidcoulson/esphome-ipv6-only@main
+
+network:
+  enable_ipv6: true
+  min_ipv6_addr_count: 2
+
+ethernet:
+  type: IP101
+  mdc_pin: GPIO31
+  mdio_pin: GPIO52
+  power_pin: GPIO51
+  clk:
+    mode: CLK_EXT_IN
+    pin: GPIO50
+  phy_addr: 1
+  ipv6_only: true
+  # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
+  # use_address: "[2001:db8::...]"
+
+logger:
+  level: DEBUG
+  hardware_uart: UART0
+
+api:
+  encryption:
+    key: !secret api_key
+  # Ethernet node: no Wi-Fi reboot_timeout, so this is the recovery path.
+  reboot_timeout: 300s
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+time:
+  - platform: sntp
+    servers: [2.pool.ntp.org]
+
+debug:
+  update_interval: 60s
+
+text_sensor:
+  - platform: ethernet_info
+    ip_address:
+      name: IP address
+      ignore_link_local: true
+  - platform: debug
+    reset_reason:
+      name: Reset reason
+
+button:
+  - platform: restart
+    name: Restart
