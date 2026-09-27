@@ -94,8 +94,9 @@ router advertisement was dropped in hardware: link-local worked, SLAAC never
 ran, and `IPv6 Router: none`. The W5500 passes IPv6 multicast regardless (it
 logs one "IPv6 multicast is always filtered in by W5500" warning at boot).
 
-Confirmed on hardware: the ESP32-P4 GPS NTP board (IP101, dual-stack, ESP-IDF
-6.1.0) got its link-local and then its SLAAC ULA from the router advertisement.
+Confirmed on hardware (dual-stack, ESP-IDF 6.1.0): the ESP32-P4 GPS NTP board
+(IP101) and the ESP32-S3 GPS NTP board (W5500) both get their link-local, their
+SLAAC ULA and the RA default router, and serve NTP over IPv6.
 
 ### Ethernet
 
