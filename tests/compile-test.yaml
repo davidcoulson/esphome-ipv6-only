@@ -10,7 +10,10 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [wifi, wifi_info, sntp, gateway_watchdog]
+    components: [wifi, wifi_info, sntp]
+  # IPv6 support lives upstream since v1.2.0; no copy is kept here.
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+    components: [gateway_watchdog]
 
 network:
   enable_ipv6: true

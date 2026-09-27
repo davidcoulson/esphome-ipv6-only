@@ -15,8 +15,9 @@ web server listen on v6, and ESP‑IDF's mDNS announces AAAA records.
 
 It also ships the same `ipv6_only` option for the `ethernet` component, a
 small override of the `sntp` component (lwIP's SNTP client resolves server
-names IPv4‑first and never falls back to AAAA), and an IPv6‑capable copy of
-[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog).
+names IPv4‑first and never falls back to AAAA).
+[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog)
+supports IPv6 upstream from v1.2.0, so it is used directly rather than copied.
 
 [esphome/issues#7117]: https://github.com/esphome/issues/issues/7117
 
@@ -89,18 +90,29 @@ untouched). Compile‑tested on an ESP32‑POE‑ISO (LAN8720) config.
 
 ### gateway_watchdog
 
-Upstream esphome-gateway-watchdog is inert on an IPv6‑only node rather than
-wrong: it reads the IPv4 gateway from `esp_netif_get_ip_info()`, gets 0.0.0.0,
-and never starts a ping session (no reboots, sensors stay NaN). The copy in
-`components/gateway_watchdog/` (diff in `gateway-watchdog-ipv6.patch`, applies
-to that repo including its host tests, which pass):
+Use [esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog)
+**v1.2.0 or later** as its own external component; this repo no longer carries
+a copy. Before v1.2.0 the watchdog is inert on an IPv6‑only node: it reads the
+IPv4 gateway, gets 0.0.0.0, and never starts a ping session.
 
-- targets are `ip_addr_t`, so `target:` accepts an IPv6 literal and `esp_ping`
-  sends ICMPv6 echo for it;
-- with no `target:` and no IPv4 gateway, it watches the first live IPv6 default
-  router from lwIP's ND6 default‑router list (`lwip/priv/nd6_priv.h`, a private
-  header that ESP‑IDF ships). That is the router's link‑local address, i.e.
-  exactly the next hop the node forwards through.
+From v1.2.0, with no `target:` and no IPv4 gateway it watches the IPv6 default
+router from lwIP's ND6 table, and `target:` accepts an IPv6 literal. The copy
+that used to live here had the right idea but pinged the router's link‑local
+address from an unbound socket; `esp_ping` drops the zone, lwIP then has no
+route on any node with more than one netif (every node, because of the loopback
+netif), and a healthy router read as 100% packet loss. v1.2.0 binds IPv6
+sessions to the router's interface, and its host tests now build dual‑stack so
+the IPv6 path is actually exercised.
+
+```yaml
+external_components:
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+    components: [gateway_watchdog]
+```
+
+List `gateway_watchdog` from that source only. ESPHome rejects a listed
+component its source does not contain, and when two sources do provide one,
+the one listed *last* wins.
 
 ### wifi_info / ethernet_info
 
@@ -116,7 +128,7 @@ sub‑sensors were already correct and are unchanged.
 |---|---|
 | ESPHome | 2026.9.0 (the fork is a copy of that release's `wifi`, `ethernet` and `sntp` components; see *Rebasing*) |
 | Platform | ESP32 family, ESP‑IDF framework. The Arduino framework on ESP32 shares the same code path and validates, but is untested. |
-| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`ipv6_only` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
+| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`ipv6_only` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp override and gateway_watchdog v1.2.0 included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
 | Hardware‑tested | ESP32‑C3, ESP‑IDF 6.1.0, IPv6‑only Wi‑Fi (SLAAC, no DHCPv4): connects, is discovered over mDNS, holds a Home Assistant API connection, and takes OTA updates and serves `esphome logs`, all over IPv6. |
 | Not supported | ESP8266, RP2040, LibreTiny (their status comes from the Arduino `WL_CONNECTED` flag, which itself waits for IPv4). |
 | Network | Router advertisements with a prefix for SLAAC. RDNSS or DHCPv6 "O" flag if the device must resolve names. |
@@ -126,7 +138,10 @@ sub‑sensors were already correct and are unchanged.
 ```yaml
 external_components:
   - source: github://davidcoulson/esphome-ipv6-only@main
-    components: [wifi, wifi_info, sntp]   # add ethernet, ethernet_info, gateway_watchdog as needed
+    components: [wifi, wifi_info, sntp]   # add ethernet, ethernet_info as needed
+  # optional: gateway_watchdog, from its own repo (see above)
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+    components: [gateway_watchdog]
 
 network:
   enable_ipv6: true
@@ -187,8 +202,7 @@ esphome config example.yaml
 
 Then regenerate `upstream.patch` with `diff -ruN` against the pristine copy.
 The patch is small (~300 changed lines) and touches stable code; expect it to
-apply cleanly across most releases. `gateway-watchdog-ipv6.patch` applies to
-the esphome-gateway-watchdog repo the same way.
+apply cleanly across most releases.
 
 ## Upstream
 
@@ -207,9 +221,7 @@ components/wifi/          full copy of ESPHome 2026.9.0 wifi + patch
 components/ethernet/      full copy of ESPHome 2026.9.0 ethernet + patch
 components/sntp/          full copy of ESPHome 2026.9.0 sntp + patch
 components/wifi_info/, components/ethernet_info/  ip_address sensor fix
-components/gateway_watchdog/  esphome-gateway-watchdog with IPv6 targets / ND6 router
 upstream.patch            the diff against that ESPHome release (wifi, ethernet, sntp, wifi_info, ethernet_info)
-gateway-watchdog-ipv6.patch   the diff against esphome-gateway-watchdog (incl. tests)
 example.yaml              complete IPv6-only device config
 c3-test.yaml              ESP32-C3 hardware test config (ESP-IDF 6.1.0)
 tests/compile-test.yaml   secrets-free Wi-Fi config for `esphome config` / `compile`
