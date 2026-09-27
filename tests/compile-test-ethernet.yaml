@@ -13,11 +13,12 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [ethernet, ethernet_info, sntp]
+    components: [network, ethernet, ethernet_info, sntp]
 
 network:
   enable_ipv6: true
   min_ipv6_addr_count: 2
+  enable_ipv4: false
 
 ethernet:
   type: LAN8720
@@ -28,7 +29,6 @@ ethernet:
     mode: CLK_OUT
   phy_addr: 0
   power_pin: GPIO12
-  enable_ipv4: false
 
 logger:
 api:

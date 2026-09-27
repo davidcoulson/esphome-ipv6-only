@@ -33,12 +33,13 @@ external_components:
   - source:
       type: local
       path: components
-    components: [ethernet, ethernet_info, sntp]
+    components: [network, ethernet, ethernet_info, sntp]
     # or: source: github://davidcoulson/esphome-ipv6-only@main
 
 network:
   enable_ipv6: true
   min_ipv6_addr_count: 2
+  enable_ipv4: false
 
 ethernet:
   type: IP101
@@ -49,7 +50,6 @@ ethernet:
     mode: CLK_EXT_IN
     pin: GPIO50
   phy_addr: 1
-  enable_ipv4: false
   # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
   # use_address: "[2001:db8::...]"
 

@@ -352,7 +352,7 @@ class EthernetComponent final : public Component {
   bool ipv6_setup_done_{false};
   bool ipv6_duplicate_logged_{false};
   uint32_t ipv6_last_attempt_{0};
-  // esphome-ipv6-only: no-op unless USE_ETHERNET_IPV6_ONLY.
+  // esphome-ipv6-only: no-op unless USE_NETWORK_IPV6_ONLY.
   void enable_stateless_dhcp6_();
 #endif /* LWIP_IPV6 */
 

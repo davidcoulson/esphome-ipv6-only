@@ -28,17 +28,17 @@ external_components:
   - source:
       type: local
       path: components
-    components: [wifi, wifi_info, sntp]
+    components: [network, wifi, wifi_info, sntp]
     # or: source: github://davidcoulson/esphome-ipv6-only@main
 
 network:
   enable_ipv6: true
   min_ipv6_addr_count: 2
+  enable_ipv4: false
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  enable_ipv4: false
   # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
   # use_address: "[2001:db8::...]"
 

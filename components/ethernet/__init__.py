@@ -23,14 +23,12 @@ from esphome.const import (
     CONF_DNS1,
     CONF_DNS2,
     CONF_DOMAIN,
-    CONF_ENABLE_IPV6,
     CONF_ENABLE_ON_BOOT,
     CONF_GATEWAY,
     CONF_ID,
     CONF_INTERRUPT_PIN,
     CONF_MAC_ADDRESS,
     CONF_MANUAL_IP,
-    CONF_MIN_IPV6_ADDR_COUNT,
     CONF_MISO_PIN,
     CONF_MODE,
     CONF_MOSI_PIN,
@@ -419,26 +417,20 @@ def _validate(config: ConfigType) -> ConfigType:
     return config
 
 
-# esphome-ipv6-only fork: `enable_ipv4: false` connects on IPv6 alone and never
-# runs the DHCPv4 client. `ipv6_only` was the option's earlier name.
+# esphome-ipv6-only fork: IPv6-only mode is `network: enable_ipv4: false` (the
+# network override). These interface-level names were used earlier.
 CONF_ENABLE_IPV4 = "enable_ipv4"
 CONF_IPV6_ONLY = "ipv6_only"
-
-
-def _validate_enable_ipv4(value):
-    """enable_ipv4 defaults on everywhere; only ESP32 can turn it off."""
-    value = cv.boolean(value)
-    if not value and not CORE.is_esp32:
-        raise cv.Invalid("enable_ipv4: false is only supported on ESP32")
-    return value
 
 
 BASE_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(EthernetComponent),
-        cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
+        cv.Optional(CONF_ENABLE_IPV4): cv.invalid(
+            "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
+        ),
         cv.Optional(CONF_IPV6_ONLY): cv.invalid(
-            "ipv6_only was renamed: use `enable_ipv4: false`"
+            "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
         ),
         cv.Optional(
             CONF_MANUAL_IP, visibility=cv.Visibility.ADVANCED
@@ -677,16 +669,6 @@ async def to_code(config: ConfigType) -> None:
         cg.add_define("USE_ETHERNET_MANUAL_IP")
         cg.add(var.set_manual_ip(manual_ip(config[CONF_MANUAL_IP])))
 
-    if not config[CONF_ENABLE_IPV4]:
-        cg.add_define("USE_ETHERNET_IPV6_ONLY")
-        # Shared with the wifi override; the sntp override keys on it.
-        cg.add_define("USE_NETWORK_IPV6_ONLY")
-        if CORE.is_esp32:
-            from esphome.components.esp32 import add_idf_sdkconfig_option
-
-            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
-            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
-
     # Add compile-time define for PHY types with specific code
     if phy_define := _PHY_TYPE_TO_DEFINE.get(config[CONF_TYPE]):
         cg.add_define(phy_define)
@@ -873,27 +855,17 @@ def _final_validate_rmii_pins(config: ConfigType) -> None:
             raise cv.Invalid(error_msg, path=pin_path)
 
 
-def _validate_enable_ipv4_off(config: ConfigType) -> None:
-    """esphome-ipv6-only: same rules as the wifi override."""
-    if config.get(CONF_ENABLE_IPV4, True):
-        return
-    network_config = fv.full_config.get().get("network", {})
-    if not network_config.get(CONF_ENABLE_IPV6, False):
-        raise cv.Invalid(
-            "ethernet: enable_ipv4: false requires `network: enable_ipv6: true`.",
-            [CONF_ENABLE_IPV4],
-        )
-    if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
-        raise cv.Invalid(
-            "ethernet: enable_ipv4: false requires `network: min_ipv6_addr_count` of at least 1 "
-            "(2 waits for a routable address as well as the link-local one).",
-            [CONF_ENABLE_IPV4],
-        )
+def _validate_enable_ipv4_off(config):
+    """esphome-ipv6-only: a static IPv4 (manual_ip) contradicts
+    `network: enable_ipv4: false`."""
+    if fv.full_config.get().get("network", {}).get(CONF_ENABLE_IPV4, True):
+        return config
     if CONF_MANUAL_IP in config:
         raise cv.Invalid(
-            "ethernet: enable_ipv4: false cannot be combined with manual_ip (a static IPv4 address).",
-            [CONF_ENABLE_IPV4],
+            "manual_ip can't be used with `network: enable_ipv4: false`.",
+            [CONF_MANUAL_IP],
         )
+    return config
 
 
 def _final_validate(config: ConfigType) -> None:

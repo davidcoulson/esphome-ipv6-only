@@ -35,11 +35,11 @@
 #include "lwip/apps/sntp.h"
 #include "lwip/dns.h"
 #include "lwip/err.h"
-#ifdef USE_WIFI_IPV6_ONLY
+#ifdef USE_NETWORK_IPV6_ONLY
 #include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
 #include "lwip/dhcp6.h"
 #include "lwip/netif.h"
-#endif  // USE_WIFI_IPV6_ONLY
+#endif  // USE_NETWORK_IPV6_ONLY
 
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -577,7 +577,7 @@ bool WiFiComponent::wifi_sta_ip_config_(const optional<ManualIP> &manual_ip) {
   }
 
   if (!manual_ip.has_value()) {
-#ifdef USE_WIFI_IPV6_ONLY
+#ifdef USE_NETWORK_IPV6_ONLY
     // esphome-ipv6-only: never run the DHCPv4 client. Besides keeping IPv4 off the
     // wire, this matters for routing: esp_netif only makes a netif lwIP's default
     // route on link-up when its DHCP client is stopped (otherwise it waits for a
@@ -614,7 +614,7 @@ bool WiFiComponent::wifi_sta_ip_config_(const optional<ManualIP> &manual_ip) {
       return err == ESP_OK;
     }
     return true;
-#endif  // USE_WIFI_IPV6_ONLY
+#endif  // USE_NETWORK_IPV6_ONLY
   }
 
   esp_netif_ip_info_t info;  // struct of ip4_addr_t with ip, netmask, gw
@@ -860,7 +860,7 @@ void WiFiComponent::wifi_process_event_(IDFWiFiEvent *data) {
     // is processed, long after esp_netif's own STA_CONNECTED handler brought
     // the netif up on the event task.
     esp_netif_create_ip6_linklocal(s_sta_netif);
-#if defined(USE_WIFI_IPV6_ONLY) && LWIP_IPV6_DHCP6
+#if defined(USE_NETWORK_IPV6_ONLY) && LWIP_IPV6_DHCP6
     // Stateless DHCPv6 (RA "O" flag) for DNS servers; esp_netif never starts it.
     if (auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(s_sta_netif)); netif != nullptr) {
       LwIPLock lock;
@@ -1080,7 +1080,7 @@ void WiFiComponent::wifi_process_event_(IDFWiFiEvent *data) {
 }
 
 WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
-#ifdef USE_WIFI_IPV6_ONLY
+#ifdef USE_NETWORK_IPV6_ONLY
   // esphome-ipv6-only: connected once the configured number of IPv6 addresses is
   // up. No IPv4 address is expected (the DHCPv4 client is never started).
   // Config validation guarantees USE_NETWORK_MIN_IPV6_ADDR_COUNT >= 1.
@@ -1097,7 +1097,7 @@ WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
     return WiFiSTAConnectStatus::CONNECTED;
 #endif /* USE_NETWORK_IPV6 */
   }
-#endif  // USE_WIFI_IPV6_ONLY
+#endif  // USE_NETWORK_IPV6_ONLY
   if (s_sta_connect_error) {
     return WiFiSTAConnectStatus::ERROR_CONNECT_FAILED;
   }

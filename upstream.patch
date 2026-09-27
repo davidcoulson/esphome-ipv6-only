@@ -1,70 +1,101 @@
---- a/esphome/components/wifi/__init__.py	2026-09-16 08:47:05.000000000 +0000
-+++ b/esphome/components/wifi/__init__.py	2026-09-27 21:11:33.164466739 +0000
-@@ -33,6 +33,7 @@
-     CONF_DOMAIN,
-     CONF_EAP,
-     CONF_ENABLE_BTM,
-+    CONF_ENABLE_IPV6,
-     CONF_ENABLE_ON_BOOT,
-     CONF_ENABLE_RRM,
-     CONF_FAST_CONNECT,
-@@ -42,6 +43,7 @@
-     CONF_IDENTITY,
-     CONF_KEY,
-     CONF_MANUAL_IP,
-+    CONF_MIN_IPV6_ADDR_COUNT,
-     CONF_NETWORKS,
-     CONF_ON_CONNECT,
-     CONF_ON_DISCONNECT,
-@@ -157,6 +159,19 @@
- CONF_MIN_AUTH_MODE = "min_auth_mode"
- CONF_PHY_MODE = "phy_mode"
- CONF_POST_CONNECT_ROAMING = "post_connect_roaming"
-+# esphome-ipv6-only fork: `enable_ipv4: false` connects on IPv6 alone and never
-+# runs the DHCPv4 client. `ipv6_only` was the option's earlier name.
+--- a/esphome/components/network/__init__.py	2026-09-16 08:47:05.000000000 +0000
++++ b/esphome/components/network/__init__.py	2026-09-27 21:46:29.028558546 +0000
+@@ -17,6 +17,36 @@
+ import esphome.final_validate as fv
+ from esphome.types import ConfigType
+ 
++# esphome-ipv6-only fork: `enable_ipv4: false` makes the wifi and ethernet
++# overrides connect on IPv6 alone and never run the DHCPv4 client.
 +CONF_ENABLE_IPV4 = "enable_ipv4"
-+CONF_IPV6_ONLY = "ipv6_only"
 +
 +
-+def _validate_enable_ipv4(value):
++def _validate_enable_ipv4(value: Any) -> bool:
 +    """enable_ipv4 defaults on everywhere; only ESP32 can turn it off."""
 +    value = cv.boolean(value)
 +    if not value and not CORE.is_esp32:
 +        raise cv.Invalid("enable_ipv4: false is only supported on ESP32")
 +    return value
 +
++
++def _validate_ipv6_only(config: ConfigType) -> ConfigType:
++    """enable_ipv4: false needs IPv6 and a non-zero address count to connect on."""
++    if config[CONF_ENABLE_IPV4]:
++        return config
++    if not config.get(CONF_ENABLE_IPV6, False):
++        raise cv.Invalid(
++            "enable_ipv4: false requires enable_ipv6: true", [CONF_ENABLE_IPV4]
++        )
++    if config[CONF_MIN_IPV6_ADDR_COUNT] < 1:
++        raise cv.Invalid(
++            "enable_ipv4: false requires min_ipv6_addr_count of at least 1 "
++            "(2 waits for a routable address as well as the link-local one)",
++            [CONF_ENABLE_IPV4],
++        )
++    return config
++
++
+ CODEOWNERS = ["@esphome/core"]
+ AUTO_LOAD = ["mdns"]
+ 
+@@ -313,6 +343,7 @@
+                 validate_ipv6,
+             ),
+             cv.Optional(CONF_MIN_IPV6_ADDR_COUNT, default=0): cv.positive_int,
++            cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
+             cv.Optional(CONF_ENABLE_HIGH_PERFORMANCE): cv.All(
+                 cv.boolean, cv.only_on_esp32
+             ),
+@@ -324,6 +355,7 @@
+             cv.Optional(CONF_PRIORITY): _validate_priority_list,
+         }
+     ),
++    _validate_ipv6_only,
+     _register_provisioning_source,
+ )
+ 
+@@ -504,6 +536,13 @@
+             cg.add_define(
+                 "USE_NETWORK_MIN_IPV6_ADDR_COUNT", config[CONF_MIN_IPV6_ADDR_COUNT]
+             )
++        if not config[CONF_ENABLE_IPV4]:
++            # The wifi, ethernet and sntp overrides key on this.
++            cg.add_define("USE_NETWORK_IPV6_ONLY")
++            # Name resolution without an IPv4 resolver: take DNS servers from the
++            # RA RDNSS option (RFC 8106) and from stateless DHCPv6 (RA "O" flag).
++            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
++            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
+         if CORE.is_esp32:
+             if CORE.using_arduino:
+                 add_idf_sdkconfig_option("CONFIG_LWIP_IPV6", True)
+--- a/esphome/components/wifi/__init__.py	2026-09-16 08:47:05.000000000 +0000
++++ b/esphome/components/wifi/__init__.py	2026-09-27 21:46:34.647363890 +0000
+@@ -157,6 +157,11 @@
+ CONF_MIN_AUTH_MODE = "min_auth_mode"
+ CONF_PHY_MODE = "phy_mode"
+ CONF_POST_CONNECT_ROAMING = "post_connect_roaming"
++# esphome-ipv6-only fork: IPv6-only mode is `network: enable_ipv4: false` (the
++# network override). These interface-level names were used earlier.
++CONF_ENABLE_IPV4 = "enable_ipv4"
++CONF_IPV6_ONLY = "ipv6_only"
++
  
  # Maximum number of WiFi networks that can be configured
  # Limited to 127 because selected_sta_index_ is int8_t in C++
-@@ -348,6 +363,35 @@
+@@ -348,6 +353,21 @@
      return config
  
  
 +def _validate_enable_ipv4_off(config):
-+    """enable_ipv4: false needs the network component's IPv6 stack and a non-zero
-+    min_ipv6_addr_count, otherwise the connect gate would open with no address
-+    at all. A static IPv4 (manual_ip) contradicts it."""
-+    if config.get(CONF_ENABLE_IPV4, True):
++    """esphome-ipv6-only: a static IPv4 (manual_ip) contradicts
++    `network: enable_ipv4: false`."""
++    if fv.full_config.get().get("network", {}).get(CONF_ENABLE_IPV4, True):
 +        return config
-+    full_config = fv.full_config.get()
-+    network_config = full_config.get("network", {})
-+    if not network_config.get(CONF_ENABLE_IPV6, False):
-+        raise cv.Invalid(
-+            "wifi: enable_ipv4: false requires `network: enable_ipv6: true`.",
-+            [CONF_ENABLE_IPV4],
-+        )
-+    if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
-+        raise cv.Invalid(
-+            "wifi: enable_ipv4: false requires `network: min_ipv6_addr_count` of at least 1 "
-+            "(2 waits for a routable address as well as the link-local one).",
-+            [CONF_ENABLE_IPV4],
-+        )
 +    if CONF_MANUAL_IP in config or any(
 +        CONF_MANUAL_IP in net for net in config.get(CONF_NETWORKS, [])
 +    ):
 +        raise cv.Invalid(
-+            "wifi: enable_ipv4: false cannot be combined with manual_ip (a static IPv4 address).",
-+            [CONF_ENABLE_IPV4],
++            "manual_ip can't be used with `network: enable_ipv4: false`.",
++            [CONF_MANUAL_IP],
 +        )
 +    return config
 +
@@ -72,7 +103,7 @@
  def final_validate(config):
      has_sta = bool(config.get(CONF_NETWORKS, True))
      has_ap = CONF_AP in config
-@@ -387,6 +431,9 @@
+@@ -387,6 +407,9 @@
  
  
  FINAL_VALIDATE_SCHEMA = cv.All(
@@ -82,33 +113,19 @@
      final_validate,
      validate_variant,
      _consume_wifi_sockets,
-@@ -509,6 +556,10 @@
+@@ -509,6 +532,12 @@
              ): cv.enum(WIFI_POWER_SAVE_MODES, upper=True),
              cv.Optional(CONF_FAST_CONNECT, default=False): _fast_connect_schema,
              cv.Optional(CONF_USE_ADDRESS): cv.string_strict,
-+            cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
++            cv.Optional(CONF_ENABLE_IPV4): cv.invalid(
++                "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
++            ),
 +            cv.Optional(CONF_IPV6_ONLY): cv.invalid(
-+                "ipv6_only was renamed: use `enable_ipv4: false`"
++                "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
 +            ),
              cv.Optional(CONF_MIN_AUTH_MODE): cv.All(
                  VALIDATE_WIFI_MIN_AUTH_MODE,
                  cv.only_on([Platform.ESP32, Platform.ESP8266]),
-@@ -674,6 +725,15 @@
-     if has_manual_ip:
-         cg.add_define("USE_WIFI_MANUAL_IP")
- 
-+    if not config[CONF_ENABLE_IPV4]:
-+        cg.add_define("USE_WIFI_IPV6_ONLY")
-+        # Shared with the ethernet override; the sntp override keys on it.
-+        cg.add_define("USE_NETWORK_IPV6_ONLY")
-+        # Name resolution without an IPv4 resolver: take DNS servers from the
-+        # RA RDNSS option (RFC 8106) and from stateless DHCPv6 (RA "O" flag).
-+        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
-+        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
-+
-     # The C++ initializers are DEFAULT_REBOOT_TIMEOUT, power save NONE and minimum
-     # auth WPA2; skip the setters when the config matches them.
-     if (reboot_timeout := config[CONF_REBOOT_TIMEOUT]) != cv.time_period(
 --- a/esphome/components/wifi/wifi_component.cpp	2026-09-16 08:47:05.000000000 +0000
 +++ b/esphome/components/wifi/wifi_component.cpp	2026-09-27 07:33:15.181801974 +0000
 @@ -25,6 +25,11 @@
@@ -174,16 +191,16 @@
    if (const WiFiAP *config = this->get_selected_sta_(); config && config->has_bssid()) {
      ESP_LOGV(TAG, "  Priority: %d", this->get_sta_priority(config->get_bssid()));
 --- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
-+++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-27 08:39:49.209200901 +0000
++++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-27 21:46:20.782687768 +0000
 @@ -35,6 +35,11 @@
  #include "lwip/apps/sntp.h"
  #include "lwip/dns.h"
  #include "lwip/err.h"
-+#ifdef USE_WIFI_IPV6_ONLY
++#ifdef USE_NETWORK_IPV6_ONLY
 +#include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
 +#include "lwip/dhcp6.h"
 +#include "lwip/netif.h"
-+#endif  // USE_WIFI_IPV6_ONLY
++#endif  // USE_NETWORK_IPV6_ONLY
  
  #include "esphome/core/application.h"
  #include "esphome/core/hal.h"
@@ -191,7 +208,7 @@
    }
  
    if (!manual_ip.has_value()) {
-+#ifdef USE_WIFI_IPV6_ONLY
++#ifdef USE_NETWORK_IPV6_ONLY
 +    // esphome-ipv6-only: never run the DHCPv4 client. Besides keeping IPv4 off the
 +    // wire, this matters for routing: esp_netif only makes a netif lwIP's default
 +    // route on link-up when its DHCP client is stopped (otherwise it waits for a
@@ -214,7 +231,7 @@
        return err == ESP_OK;
      }
      return true;
-+#endif  // USE_WIFI_IPV6_ONLY
++#endif  // USE_NETWORK_IPV6_ONLY
    }
  
    esp_netif_ip_info_t info;  // struct of ip4_addr_t with ip, netmask, gw
@@ -231,7 +248,7 @@
 +    // is processed, long after esp_netif's own STA_CONNECTED handler brought
 +    // the netif up on the event task.
 +    esp_netif_create_ip6_linklocal(s_sta_netif);
-+#if defined(USE_WIFI_IPV6_ONLY) && LWIP_IPV6_DHCP6
++#if defined(USE_NETWORK_IPV6_ONLY) && LWIP_IPV6_DHCP6
 +    // Stateless DHCPv6 (RA "O" flag) for DNS servers; esp_netif never starts it.
 +    if (auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(s_sta_netif)); netif != nullptr) {
 +      LwIPLock lock;
@@ -267,7 +284,7 @@
  }
  
  WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
-+#ifdef USE_WIFI_IPV6_ONLY
++#ifdef USE_NETWORK_IPV6_ONLY
 +  // esphome-ipv6-only: connected once the configured number of IPv6 addresses is
 +  // up. No IPv4 address is expected (the DHCPv4 client is never started).
 +  // Config validation guarantees USE_NETWORK_MIN_IPV6_ADDR_COUNT >= 1.
@@ -282,97 +299,49 @@
      return WiFiSTAConnectStatus::CONNECTED;
  #endif /* USE_NETWORK_IPV6 */
    }
-+#endif  // USE_WIFI_IPV6_ONLY
++#endif  // USE_NETWORK_IPV6_ONLY
    if (s_sta_connect_error) {
      return WiFiSTAConnectStatus::ERROR_CONNECT_FAILED;
    }
 --- a/esphome/components/ethernet/__init__.py	2026-09-27 00:40:09.593701330 +0000
-+++ b/esphome/components/ethernet/__init__.py	2026-09-27 21:11:33.164466739 +0000
-@@ -23,12 +23,14 @@
-     CONF_DNS1,
-     CONF_DNS2,
-     CONF_DOMAIN,
-+    CONF_ENABLE_IPV6,
-     CONF_ENABLE_ON_BOOT,
-     CONF_GATEWAY,
-     CONF_ID,
-     CONF_INTERRUPT_PIN,
-     CONF_MAC_ADDRESS,
-     CONF_MANUAL_IP,
-+    CONF_MIN_IPV6_ADDR_COUNT,
-     CONF_MISO_PIN,
-     CONF_MODE,
-     CONF_MOSI_PIN,
-@@ -417,9 +419,27 @@
++++ b/esphome/components/ethernet/__init__.py	2026-09-27 21:46:34.647750515 +0000
+@@ -417,9 +417,21 @@
      return config
  
  
-+# esphome-ipv6-only fork: `enable_ipv4: false` connects on IPv6 alone and never
-+# runs the DHCPv4 client. `ipv6_only` was the option's earlier name.
++# esphome-ipv6-only fork: IPv6-only mode is `network: enable_ipv4: false` (the
++# network override). These interface-level names were used earlier.
 +CONF_ENABLE_IPV4 = "enable_ipv4"
 +CONF_IPV6_ONLY = "ipv6_only"
-+
-+
-+def _validate_enable_ipv4(value):
-+    """enable_ipv4 defaults on everywhere; only ESP32 can turn it off."""
-+    value = cv.boolean(value)
-+    if not value and not CORE.is_esp32:
-+        raise cv.Invalid("enable_ipv4: false is only supported on ESP32")
-+    return value
 +
 +
  BASE_SCHEMA = cv.Schema(
      {
          cv.GenerateID(): cv.declare_id(EthernetComponent),
-+        cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
++        cv.Optional(CONF_ENABLE_IPV4): cv.invalid(
++            "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
++        ),
 +        cv.Optional(CONF_IPV6_ONLY): cv.invalid(
-+            "ipv6_only was renamed: use `enable_ipv4: false`"
++            "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
 +        ),
          cv.Optional(
              CONF_MANUAL_IP, visibility=cv.Visibility.ADVANCED
          ): MANUAL_IP_SCHEMA,
-@@ -657,6 +677,16 @@
-         cg.add_define("USE_ETHERNET_MANUAL_IP")
-         cg.add(var.set_manual_ip(manual_ip(config[CONF_MANUAL_IP])))
- 
-+    if not config[CONF_ENABLE_IPV4]:
-+        cg.add_define("USE_ETHERNET_IPV6_ONLY")
-+        # Shared with the wifi override; the sntp override keys on it.
-+        cg.add_define("USE_NETWORK_IPV6_ONLY")
-+        if CORE.is_esp32:
-+            from esphome.components.esp32 import add_idf_sdkconfig_option
-+
-+            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
-+            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
-+
-     # Add compile-time define for PHY types with specific code
-     if phy_define := _PHY_TYPE_TO_DEFINE.get(config[CONF_TYPE]):
-         cg.add_define(phy_define)
-@@ -843,8 +873,32 @@
+@@ -843,8 +855,22 @@
              raise cv.Invalid(error_msg, path=pin_path)
  
  
-+def _validate_enable_ipv4_off(config: ConfigType) -> None:
-+    """esphome-ipv6-only: same rules as the wifi override."""
-+    if config.get(CONF_ENABLE_IPV4, True):
-+        return
-+    network_config = fv.full_config.get().get("network", {})
-+    if not network_config.get(CONF_ENABLE_IPV6, False):
-+        raise cv.Invalid(
-+            "ethernet: enable_ipv4: false requires `network: enable_ipv6: true`.",
-+            [CONF_ENABLE_IPV4],
-+        )
-+    if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
-+        raise cv.Invalid(
-+            "ethernet: enable_ipv4: false requires `network: min_ipv6_addr_count` of at least 1 "
-+            "(2 waits for a routable address as well as the link-local one).",
-+            [CONF_ENABLE_IPV4],
-+        )
++def _validate_enable_ipv4_off(config):
++    """esphome-ipv6-only: a static IPv4 (manual_ip) contradicts
++    `network: enable_ipv4: false`."""
++    if fv.full_config.get().get("network", {}).get(CONF_ENABLE_IPV4, True):
++        return config
 +    if CONF_MANUAL_IP in config:
 +        raise cv.Invalid(
-+            "ethernet: enable_ipv4: false cannot be combined with manual_ip (a static IPv4 address).",
-+            [CONF_ENABLE_IPV4],
++            "manual_ip can't be used with `network: enable_ipv4: false`.",
++            [CONF_MANUAL_IP],
 +        )
++    return config
 +
 +
  def _final_validate(config: ConfigType) -> None:
@@ -382,7 +351,7 @@
      if "wifi" in fv.full_config.get():
          priority_ifaces = get_priority_interfaces_from_full_config(fv.full_config.get())
 --- a/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:40:09.593908868 +0000
-+++ b/esphome/components/ethernet/ethernet_component.h	2026-09-27 08:18:28.983308090 +0000
++++ b/esphome/components/ethernet/ethernet_component.h	2026-09-27 21:46:20.783233369 +0000
 @@ -218,7 +218,9 @@
  
   protected:
@@ -400,13 +369,13 @@
    bool ipv6_setup_done_{false};
 +  bool ipv6_duplicate_logged_{false};
 +  uint32_t ipv6_last_attempt_{0};
-+  // esphome-ipv6-only: no-op unless USE_ETHERNET_IPV6_ONLY.
++  // esphome-ipv6-only: no-op unless USE_NETWORK_IPV6_ONLY.
 +  void enable_stateless_dhcp6_();
  #endif /* LWIP_IPV6 */
  
    optional<std::array<uint8_t, MAC_ADDRESS_SIZE>> fixed_mac_;
 --- a/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 00:40:09.593969477 +0000
-+++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 21:01:48.123007398 +0000
++++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 21:46:20.782998686 +0000
 @@ -5,6 +5,16 @@
  #include "esphome/core/application.h"
  #include "esphome/core/helpers.h"
@@ -416,11 +385,11 @@
 +#include "lwip/netif.h"
 +#include "lwip/priv/nd6_priv.h"
 +#endif
-+#ifdef USE_ETHERNET_IPV6_ONLY
++#ifdef USE_NETWORK_IPV6_ONLY
 +#include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
 +#include "lwip/dhcp6.h"
 +#include "lwip/netif.h"
-+#endif  // USE_ETHERNET_IPV6_ONLY
++#endif  // USE_NETWORK_IPV6_ONLY
  #include "w5500_custom_spi.h"
  
  #include <lwip/dns.h>
@@ -473,7 +442,7 @@
    ESP_LOGV(TAG, "[Ethernet event] ETH Got IP " IPSTR, IP2STR(&ip_info->ip));
    global_eth_component->got_ipv4_address_ = true;
 -#if USE_NETWORK_IPV6 && (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
-+#if defined(USE_ETHERNET_IPV6_ONLY)
++#if defined(USE_NETWORK_IPV6_ONLY)
 +  // esphome-ipv6-only: cannot happen (DHCPv4 client never started), but keep
 +  // the gate IPv6-only regardless.
 +  global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
@@ -496,7 +465,7 @@
 +  // same address, which let min_ipv6_addr_count pass on the link-local alone.
 +  struct esp_ip6_addr if_ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
 +  global_eth_component->ipv6_count_ = esp_netif_get_all_ip6(global_eth_component->eth_netif_, if_ip6s);
-+#if defined(USE_ETHERNET_IPV6_ONLY)
++#if defined(USE_NETWORK_IPV6_ONLY)
 +  // esphome-ipv6-only: connected on IPv6 alone, no IPv4 address expected.
 +  global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
 +#elif (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
@@ -527,7 +496,7 @@
 -    // limitation, etc.) that won't be resolved by further retries.
 -    // The device continues to work with IPv4.
 +void EthernetComponent::enable_stateless_dhcp6_() {
-+#if defined(USE_ETHERNET_IPV6_ONLY) && LWIP_IPV6_DHCP6
++#if defined(USE_NETWORK_IPV6_ONLY) && LWIP_IPV6_DHCP6
 +  // esphome-ipv6-only: stateless DHCPv6 (RA "O" flag) for DNS servers; esp_netif
 +  // never starts it.
 +  if (auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(this->eth_netif_)); netif != nullptr) {
@@ -599,7 +568,7 @@
    } else
  #endif
    {
-+#ifdef USE_ETHERNET_IPV6_ONLY
++#ifdef USE_NETWORK_IPV6_ONLY
 +    // esphome-ipv6-only: leave the DHCPv4 client stopped (it was stopped above).
 +    // With it stopped esp_netif makes this netif lwIP's default route on
 +    // link-up instead of waiting for a lease. Cosmetic side effect, as in the

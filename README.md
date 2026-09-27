@@ -6,16 +6,19 @@ Run an ESPHome Wi‑Fi device on an IPv6‑only network: router advertisements
 Upstream ESPHome can't do this. Its `wifi` component only reports *connected*
 once it holds an IPv4 address, and it only starts IPv6 address configuration
 from the DHCPv4 "got IP" event, so on a v6‑only network the device sits in
-*connecting* forever ([esphome/issues#7117]). This is a drop‑in replacement for
-the `wifi` component that adds one option, `enable_ipv4: false`. (It was called
-`ipv6_only: true` before 2026‑09‑27; the old name now fails validation with a
-pointer to the new one.)
+*connecting* forever ([esphome/issues#7117]). This fork adds one option,
+`network: enable_ipv4: false`, and drop‑in replacements for the `network`,
+`wifi` and `ethernet` components that honour it. List `network` in
+`external_components` along with the interface, or ESPHome's own `network`
+component rejects the option. (It was `wifi: ipv6_only: true` and then
+`wifi: enable_ipv4: false` earlier on 2026‑09‑27; both old forms now fail
+validation with a pointer to `network:`.)
 
 Everything downstream already works without IPv4: the socket layer binds
 `AF_INET6` sockets when IPv6 is enabled, so the native API, OTA, logger and
 web server listen on v6, and ESP‑IDF's mDNS announces AAAA records.
 
-It also ships the same `enable_ipv4` option for the `ethernet` component, a
+It also covers the `ethernet` component, a
 small override of the `sntp` component (lwIP's SNTP client resolves server
 names IPv4‑first and never falls back to AAAA), and an IPv6‑capable copy of
 [esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog) (now upstream there as v1.2.0).
@@ -102,7 +105,7 @@ SLAAC ULA and the RA default router, and serve NTP over IPv6.
 
 ### Ethernet
 
-`ethernet: enable_ipv4: false` does the equivalent for wired nodes. Upstream
+With `ethernet:` the same `network: enable_ipv4: false` applies to wired nodes. Upstream
 already creates the link‑local address on link‑up (with a retry), so only two
 things change: the connect gate becomes `ipv6_addresses >= min_ipv6_addr_count`
 with no `got_ipv4_address_` term, and the DHCPv4 client is left stopped after
@@ -173,16 +176,16 @@ text_sensor:
 ```yaml
 external_components:
   - source: github://davidcoulson/esphome-ipv6-only@main
-    components: [wifi, wifi_info, sntp]   # add ethernet, ethernet_info as needed
+    components: [network, wifi, wifi_info, sntp]   # add ethernet, ethernet_info as needed
 
 network:
   enable_ipv6: true
   min_ipv6_addr_count: 2    # link-local + one SLAAC address; 1 = link-local is enough
+  enable_ipv4: false        # needs `network` in the components list above
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  enable_ipv4: false
 
 time:
   - platform: sntp
@@ -192,8 +195,8 @@ time:
 `example.yaml` is a complete device config. `c3-test.yaml` is the hardware test
 config for an ESP32‑C3 on ESP‑IDF 6.1.0 with the watchdog in report‑only mode and
 verbose Wi‑Fi/SNTP logs; its header lists what to look for in the log. Validation rejects `enable_ipv4: false`
-without `enable_ipv6: true`, with `min_ipv6_addr_count: 0`, or together with
-`manual_ip`.
+without `enable_ipv6: true`, with `min_ipv6_addr_count: 0`, or together with a
+`manual_ip` on the interface.
 
 ## Caveats
 
@@ -223,6 +226,7 @@ The fork is the whole `wifi` component, so it must track upstream.
 
 ```bash
 git clone --depth 1 --branch <release> https://github.com/esphome/esphome
+cp -r esphome/esphome/components/network components/network
 cp -r esphome/esphome/components/wifi components/wifi
 cp -r esphome/esphome/components/sntp components/sntp
 cp -r esphome/esphome/components/ethernet components/ethernet
@@ -249,13 +253,16 @@ IPv4 in the stack and only stops depending on a lease.
 ## Layout
 
 ```
+components/network/       full copy of ESPHome 2026.9.0 network + the enable_ipv4 option
 components/wifi/          full copy of ESPHome 2026.9.0 wifi + patch
 components/ethernet/      full copy of ESPHome 2026.9.0 ethernet + patch
 components/sntp/          full copy of ESPHome 2026.9.0 sntp + patch
 components/wifi_info/, components/ethernet_info/  ip_address sensor fix
-upstream.patch            the diff against that ESPHome release (wifi, ethernet, sntp, wifi_info, ethernet_info)
+upstream.patch            the diff against that ESPHome release (network, wifi, ethernet, sntp, wifi_info, ethernet_info)
 example.yaml              complete IPv6-only device config
 c3-test.yaml              ESP32-C3 hardware test config (ESP-IDF 6.1.0)
+p4-eth-test.yaml          ESP32-P4 + IP101 Ethernet hardware test config
+s3-eth-test.yaml          ESP32-S3 + W5500 Ethernet hardware test config
 tests/compile-test.yaml   secrets-free Wi-Fi config for `esphome config` / `compile`
 tests/compile-test-ethernet.yaml  same for Ethernet (ESP32-POE-ISO)
 tests/components/wifi/    ESPHome-style component test config

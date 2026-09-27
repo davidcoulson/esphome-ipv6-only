@@ -10,11 +10,11 @@
 #include "lwip/netif.h"
 #include "lwip/priv/nd6_priv.h"
 #endif
-#ifdef USE_ETHERNET_IPV6_ONLY
+#ifdef USE_NETWORK_IPV6_ONLY
 #include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
 #include "lwip/dhcp6.h"
 #include "lwip/netif.h"
-#endif  // USE_ETHERNET_IPV6_ONLY
+#endif  // USE_NETWORK_IPV6_ONLY
 #include "w5500_custom_spi.h"
 
 #include <lwip/dns.h>
@@ -736,7 +736,7 @@ void EthernetComponent::got_ip_event_handler(void *arg, esp_event_base_t event_b
   const esp_netif_ip_info_t *ip_info = &event->ip_info;
   ESP_LOGV(TAG, "[Ethernet event] ETH Got IP " IPSTR, IP2STR(&ip_info->ip));
   global_eth_component->got_ipv4_address_ = true;
-#if defined(USE_ETHERNET_IPV6_ONLY)
+#if defined(USE_NETWORK_IPV6_ONLY)
   // esphome-ipv6-only: cannot happen (DHCPv4 client never started), but keep
   // the gate IPv6-only regardless.
   global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
@@ -764,7 +764,7 @@ void EthernetComponent::got_ip6_event_handler(void *arg, esp_event_base_t event_
   // same address, which let min_ipv6_addr_count pass on the link-local alone.
   struct esp_ip6_addr if_ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
   global_eth_component->ipv6_count_ = esp_netif_get_all_ip6(global_eth_component->eth_netif_, if_ip6s);
-#if defined(USE_ETHERNET_IPV6_ONLY)
+#if defined(USE_NETWORK_IPV6_ONLY)
   // esphome-ipv6-only: connected on IPv6 alone, no IPv4 address expected.
   global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
 #elif (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
@@ -783,7 +783,7 @@ void EthernetComponent::got_ip6_event_handler(void *arg, esp_event_base_t event_
 
 #if USE_NETWORK_IPV6
 void EthernetComponent::enable_stateless_dhcp6_() {
-#if defined(USE_ETHERNET_IPV6_ONLY) && LWIP_IPV6_DHCP6
+#if defined(USE_NETWORK_IPV6_ONLY) && LWIP_IPV6_DHCP6
   // esphome-ipv6-only: stateless DHCPv6 (RA "O" flag) for DNS servers; esp_netif
   // never starts it.
   if (auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(this->eth_netif_)); netif != nullptr) {
@@ -913,7 +913,7 @@ void EthernetComponent::start_connect_() {
   } else
 #endif
   {
-#ifdef USE_ETHERNET_IPV6_ONLY
+#ifdef USE_NETWORK_IPV6_ONLY
     // esphome-ipv6-only: leave the DHCPv4 client stopped (it was stopped above).
     // With it stopped esp_netif makes this netif lwIP's default route on
     // link-up instead of waiting for a lease. Cosmetic side effect, as in the

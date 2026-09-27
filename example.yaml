@@ -22,21 +22,21 @@ external_components:
   - source:
       type: local
       path: components
-    components: [wifi, wifi_info, sntp]
+    components: [network, wifi, wifi_info, sntp]
   # or, from GitHub:
   # - source: github://davidcoulson/esphome-ipv6-only@main
-  #   components: [wifi, wifi_info, sntp]
+  #   components: [network, wifi, wifi_info, sntp]
 
 network:
   enable_ipv6: true
   # 1 = link-local is enough, 2 = also wait for a routable (SLAAC) address.
   # Use 2 unless Home Assistant sits on the same link.
   min_ipv6_addr_count: 2
+  enable_ipv4: false
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  enable_ipv4: false
   # What `esphome run`/`esphome logs` connects to. mDNS resolves the .local name
   # to the AAAA record; give a literal IPv6 in brackets if your resolver won't.
   # use_address: "[2001:db8:1::1234]"

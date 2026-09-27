@@ -33,7 +33,6 @@ from esphome.const import (
     CONF_DOMAIN,
     CONF_EAP,
     CONF_ENABLE_BTM,
-    CONF_ENABLE_IPV6,
     CONF_ENABLE_ON_BOOT,
     CONF_ENABLE_RRM,
     CONF_FAST_CONNECT,
@@ -43,7 +42,6 @@ from esphome.const import (
     CONF_IDENTITY,
     CONF_KEY,
     CONF_MANUAL_IP,
-    CONF_MIN_IPV6_ADDR_COUNT,
     CONF_NETWORKS,
     CONF_ON_CONNECT,
     CONF_ON_DISCONNECT,
@@ -159,18 +157,10 @@ CONF_BAND_MODE = "band_mode"
 CONF_MIN_AUTH_MODE = "min_auth_mode"
 CONF_PHY_MODE = "phy_mode"
 CONF_POST_CONNECT_ROAMING = "post_connect_roaming"
-# esphome-ipv6-only fork: `enable_ipv4: false` connects on IPv6 alone and never
-# runs the DHCPv4 client. `ipv6_only` was the option's earlier name.
+# esphome-ipv6-only fork: IPv6-only mode is `network: enable_ipv4: false` (the
+# network override). These interface-level names were used earlier.
 CONF_ENABLE_IPV4 = "enable_ipv4"
 CONF_IPV6_ONLY = "ipv6_only"
-
-
-def _validate_enable_ipv4(value):
-    """enable_ipv4 defaults on everywhere; only ESP32 can turn it off."""
-    value = cv.boolean(value)
-    if not value and not CORE.is_esp32:
-        raise cv.Invalid("enable_ipv4: false is only supported on ESP32")
-    return value
 
 
 # Maximum number of WiFi networks that can be configured
@@ -364,30 +354,16 @@ def _apply_min_auth_mode_default(config):
 
 
 def _validate_enable_ipv4_off(config):
-    """enable_ipv4: false needs the network component's IPv6 stack and a non-zero
-    min_ipv6_addr_count, otherwise the connect gate would open with no address
-    at all. A static IPv4 (manual_ip) contradicts it."""
-    if config.get(CONF_ENABLE_IPV4, True):
+    """esphome-ipv6-only: a static IPv4 (manual_ip) contradicts
+    `network: enable_ipv4: false`."""
+    if fv.full_config.get().get("network", {}).get(CONF_ENABLE_IPV4, True):
         return config
-    full_config = fv.full_config.get()
-    network_config = full_config.get("network", {})
-    if not network_config.get(CONF_ENABLE_IPV6, False):
-        raise cv.Invalid(
-            "wifi: enable_ipv4: false requires `network: enable_ipv6: true`.",
-            [CONF_ENABLE_IPV4],
-        )
-    if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
-        raise cv.Invalid(
-            "wifi: enable_ipv4: false requires `network: min_ipv6_addr_count` of at least 1 "
-            "(2 waits for a routable address as well as the link-local one).",
-            [CONF_ENABLE_IPV4],
-        )
     if CONF_MANUAL_IP in config or any(
         CONF_MANUAL_IP in net for net in config.get(CONF_NETWORKS, [])
     ):
         raise cv.Invalid(
-            "wifi: enable_ipv4: false cannot be combined with manual_ip (a static IPv4 address).",
-            [CONF_ENABLE_IPV4],
+            "manual_ip can't be used with `network: enable_ipv4: false`.",
+            [CONF_MANUAL_IP],
         )
     return config
 
@@ -556,9 +532,11 @@ CONFIG_SCHEMA = cv.All(
             ): cv.enum(WIFI_POWER_SAVE_MODES, upper=True),
             cv.Optional(CONF_FAST_CONNECT, default=False): _fast_connect_schema,
             cv.Optional(CONF_USE_ADDRESS): cv.string_strict,
-            cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
+            cv.Optional(CONF_ENABLE_IPV4): cv.invalid(
+                "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
+            ),
             cv.Optional(CONF_IPV6_ONLY): cv.invalid(
-                "ipv6_only was renamed: use `enable_ipv4: false`"
+                "moved: set `enable_ipv4: false` under `network:` (and add `network` to the external_components list)"
             ),
             cv.Optional(CONF_MIN_AUTH_MODE): cv.All(
                 VALIDATE_WIFI_MIN_AUTH_MODE,
@@ -724,15 +702,6 @@ async def to_code(config):
     # Only define USE_WIFI_MANUAL_IP if any AP uses manual IP
     if has_manual_ip:
         cg.add_define("USE_WIFI_MANUAL_IP")
-
-    if not config[CONF_ENABLE_IPV4]:
-        cg.add_define("USE_WIFI_IPV6_ONLY")
-        # Shared with the ethernet override; the sntp override keys on it.
-        cg.add_define("USE_NETWORK_IPV6_ONLY")
-        # Name resolution without an IPv4 resolver: take DNS servers from the
-        # RA RDNSS option (RFC 8106) and from stateless DHCPv6 (RA "O" flag).
-        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
-        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
 
     # The C++ initializers are DEFAULT_REBOOT_TIMEOUT, power save NONE and minimum
     # auth WPA2; skip the setters when the config matches them.
