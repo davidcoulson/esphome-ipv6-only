@@ -11,7 +11,7 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [ethernet, sntp, gateway_watchdog]
+    components: [ethernet, ethernet_info, sntp, gateway_watchdog]
 
 network:
   enable_ipv6: true
@@ -46,3 +46,8 @@ sensor:
     gateway_watchdog_id: gw_wd
     packet_loss:
       name: Gateway packet loss
+
+text_sensor:
+  - platform: ethernet_info
+    ip_address:
+      name: IP address

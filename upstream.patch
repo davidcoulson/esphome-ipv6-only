@@ -551,3 +551,79 @@
              ),
          }
      ).extend(cv.COMPONENT_SCHEMA),
+--- a/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:32:11.942192443 +0000
++++ b/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:32:11.976214282 +0000
+@@ -21,10 +21,34 @@
+ 
+ void IPAddressWiFiInfo::dump_config() { LOG_TEXT_SENSOR("", "IP Address", this); }
+ 
++// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
++// therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
++// instead: IPv4 if set, else the first routable IPv6 address, else the first
++// address that is set at all (the link-local). The address_N sub-sensors are
++// unchanged: they already list only the addresses that are set.
++static const network::IPAddress &pick_primary_address(const network::IPAddresses &ips) {
++  if (ips[0].is_set())
++    return ips[0];
++#ifdef USE_ESP32
++  for (const auto &ip : ips) {
++    if (ip.is_set() && ip.is_ip6()) {
++      const ip_addr_t addr = ip;
++      if (!ip6_addr_islinklocal(ip_2_ip6(&addr)))
++        return ip;
++    }
++  }
++#endif
++  for (const auto &ip : ips) {
++    if (ip.is_set())
++      return ip;
++  }
++  return ips[0];
++}
++
+ void IPAddressWiFiInfo::on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
+                                     const network::IPAddress &dns2) {
+   char buf[network::IP_ADDRESS_BUFFER_SIZE];
+-  ips[0].str_to(buf);
++  pick_primary_address(ips).str_to(buf);
+   this->publish_state(buf);
+   uint8_t sensor = 0;
+   for (const auto &ip : ips) {
+--- a/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:32:11.947829881 +0000
++++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:32:11.976444053 +0000
+@@ -12,10 +12,34 @@
+ 
+ void IPAddressEthernetInfo::dump_config() { LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this); }
+ 
++// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
++// therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
++// instead: IPv4 if set, else the first routable IPv6 address, else the first
++// address that is set at all (the link-local). The address_N sub-sensors are
++// unchanged: they already list only the addresses that are set.
++static const network::IPAddress &pick_primary_address(const network::IPAddresses &ips) {
++  if (ips[0].is_set())
++    return ips[0];
++#ifdef USE_ESP32
++  for (const auto &ip : ips) {
++    if (ip.is_set() && ip.is_ip6()) {
++      const ip_addr_t addr = ip;
++      if (!ip6_addr_islinklocal(ip_2_ip6(&addr)))
++        return ip;
++    }
++  }
++#endif
++  for (const auto &ip : ips) {
++    if (ip.is_set())
++      return ip;
++  }
++  return ips[0];
++}
++
+ void IPAddressEthernetInfo::on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
+                                         const network::IPAddress &dns2) {
+   char buf[network::IP_ADDRESS_BUFFER_SIZE];
+-  ips[0].str_to(buf);
++  pick_primary_address(ips).str_to(buf);
+   this->publish_state(buf);
+   uint8_t sensor = 0;
+   for (const auto &ip : ips) {

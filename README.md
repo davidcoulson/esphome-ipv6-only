@@ -102,6 +102,14 @@ to that repo including its host tests, which pass):
   header that ESP‑IDF ships). That is the router's link‑local address, i.e.
   exactly the next hop the node forwards through.
 
+### wifi_info / ethernet_info
+
+Upstream's `ip_address` text sensor publishes slot 0 of the address array, which
+is always the IPv4 slot, so on an IPv6‑only node it reads `0.0.0.0` (found on
+the first hardware test). The overrides publish IPv4 if set, else the first
+routable IPv6 address, else the link‑local. The `address_0`…`address_4`
+sub‑sensors were already correct and are unchanged.
+
 ## Requirements
 
 | | |
@@ -118,7 +126,7 @@ to that repo including its host tests, which pass):
 ```yaml
 external_components:
   - source: github://davidcoulson/esphome-ipv6-only@main
-    components: [wifi, sntp]   # both override the built-in components; add ethernet and/or gateway_watchdog as needed
+    components: [wifi, wifi_info, sntp]   # add ethernet, ethernet_info, gateway_watchdog as needed
 
 network:
   enable_ipv6: true
@@ -171,7 +179,9 @@ git clone --depth 1 --branch <release> https://github.com/esphome/esphome
 cp -r esphome/esphome/components/wifi components/wifi
 cp -r esphome/esphome/components/sntp components/sntp
 cp -r esphome/esphome/components/ethernet components/ethernet
-patch -p1 -d . < upstream.patch          # paths are esphome/components/{wifi,ethernet,sntp}/...
+cp -r esphome/esphome/components/wifi_info components/wifi_info
+cp -r esphome/esphome/components/ethernet_info components/ethernet_info
+patch -p1 -d . < upstream.patch          # paths are esphome/components/<name>/...
 esphome config example.yaml
 ```
 
@@ -196,8 +206,9 @@ IPv4 in the stack and only stops depending on a lease.
 components/wifi/          full copy of ESPHome 2026.9.0 wifi + patch
 components/ethernet/      full copy of ESPHome 2026.9.0 ethernet + patch
 components/sntp/          full copy of ESPHome 2026.9.0 sntp + patch
+components/wifi_info/, components/ethernet_info/  ip_address sensor fix
 components/gateway_watchdog/  esphome-gateway-watchdog with IPv6 targets / ND6 router
-upstream.patch            the diff against that ESPHome release (wifi, ethernet, sntp)
+upstream.patch            the diff against that ESPHome release (wifi, ethernet, sntp, wifi_info, ethernet_info)
 gateway-watchdog-ipv6.patch   the diff against esphome-gateway-watchdog (incl. tests)
 example.yaml              complete IPv6-only device config
 c3-test.yaml              ESP32-C3 hardware test config (ESP-IDF 6.1.0)

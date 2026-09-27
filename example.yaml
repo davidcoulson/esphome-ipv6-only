@@ -22,10 +22,10 @@ external_components:
   - source:
       type: local
       path: components
-    components: [wifi, sntp]
+    components: [wifi, wifi_info, sntp]
   # or, from GitHub:
   # - source: github://davidcoulson/esphome-ipv6-only@main
-  #   components: [wifi, sntp]
+  #   components: [wifi, wifi_info, sntp]
 
 network:
   enable_ipv6: true

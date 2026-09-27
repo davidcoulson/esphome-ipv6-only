@@ -10,7 +10,7 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [wifi, sntp, gateway_watchdog]
+    components: [wifi, wifi_info, sntp, gateway_watchdog]
 
 network:
   enable_ipv6: true
