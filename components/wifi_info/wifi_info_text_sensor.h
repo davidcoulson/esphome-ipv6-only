@@ -17,6 +17,8 @@ class IPAddressWiFiInfo final : public Component, public text_sensor::TextSensor
   void setup() override;
   void dump_config() override;
   void add_ip_sensors(uint8_t index, text_sensor::TextSensor *s) { this->ip_sensors_[index] = s; }
+  // esphome-ipv6-only: never publish fe80:: addresses (main value and address_N).
+  void set_ignore_link_local(bool ignore) { this->ignore_link_local_ = ignore; }
 
   // WiFiIPStateListener interface
   void on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
@@ -24,6 +26,7 @@ class IPAddressWiFiInfo final : public Component, public text_sensor::TextSensor
 
  protected:
   std::array<text_sensor::TextSensor *, 5> ip_sensors_{};
+  bool ignore_link_local_{false};
 };
 
 class DNSAddressWifiInfo final : public Component, public text_sensor::TextSensor, public wifi::WiFiIPStateListener {

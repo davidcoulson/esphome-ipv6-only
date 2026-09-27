@@ -25,6 +25,8 @@ MACAddressEthernetInfo = ethernet_info_ns.class_(
     "MACAddressEthernetInfo", text_sensor.TextSensor, cg.Component
 )
 
+CONF_IGNORE_LINK_LOCAL = "ignore_link_local"
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_IP_ADDRESS): text_sensor.text_sensor_schema(
@@ -36,7 +38,9 @@ CONFIG_SCHEMA = cv.Schema(
                 )
                 for x in range(5)
             }
-        ),
+        )
+        # esphome-ipv6-only: hide fe80:: addresses from the main value and address_N.
+        .extend({cv.Optional(CONF_IGNORE_LINK_LOCAL, default=False): cv.boolean}),
         cv.Optional(CONF_DNS_ADDRESS): text_sensor.text_sensor_schema(
             DNSAddressEthernetInfo, entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
@@ -57,6 +61,8 @@ async def to_code(config: ConfigType) -> None:
     if conf := config.get(CONF_IP_ADDRESS):
         ip_info = await text_sensor.new_text_sensor(config[CONF_IP_ADDRESS])
         await cg.register_component(ip_info, config[CONF_IP_ADDRESS])
+        if conf[CONF_IGNORE_LINK_LOCAL]:
+            cg.add(ip_info.set_ignore_link_local(True))
         for x in range(5):
             if sensor_conf := conf.get(f"address_{x}"):
                 sens = await text_sensor.new_text_sensor(sensor_conf)

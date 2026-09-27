@@ -10,40 +10,56 @@ static const char *const TAG = "ethernet_info";
 #ifdef USE_ETHERNET_IP_STATE_LISTENERS
 void IPAddressEthernetInfo::setup() { ethernet::global_eth_component->add_ip_state_listener(this); }
 
-void IPAddressEthernetInfo::dump_config() { LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this); }
+void IPAddressEthernetInfo::dump_config() {
+  LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this);
+  if (this->ignore_link_local_)
+    ESP_LOGCONFIG(TAG, "  Ignore link-local: YES");
+}
 
 // esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
 // therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
-// instead: IPv4 if set, else the first routable IPv6 address, else the first
-// address that is set at all (the link-local). The address_N sub-sensors are
-// unchanged: they already list only the addresses that are set.
-static const network::IPAddress &pick_primary_address(const network::IPAddresses &ips) {
-  if (ips[0].is_set())
-    return ips[0];
+// instead: IPv4 if set, else the first non-link-local IPv6 address (ULA or
+// global), else - unless ignore_link_local is set - the link-local address.
+static bool is_link_local(const network::IPAddress &ip) {
 #ifdef USE_ESP32
-  for (const auto &ip : ips) {
-    if (ip.is_set() && ip.is_ip6()) {
-      const ip_addr_t addr = ip;
-      if (!ip6_addr_islinklocal(ip_2_ip6(&addr)))
-        return ip;
-    }
+  if (ip.is_ip6()) {
+    const ip_addr_t addr = ip;
+    return ip6_addr_islinklocal(ip_2_ip6(&addr));
   }
 #endif
+  return false;
+}
+
+// nullptr only when ignore_link_local is set and nothing else is usable yet.
+static const network::IPAddress *pick_primary_address(const network::IPAddresses &ips, bool ignore_link_local) {
+  if (ips[0].is_set())
+    return &ips[0];
+  for (const auto &ip : ips) {
+    if (ip.is_set() && !is_link_local(ip))
+      return &ip;
+  }
+  if (ignore_link_local)
+    return nullptr;
   for (const auto &ip : ips) {
     if (ip.is_set())
-      return ip;
+      return &ip;
   }
-  return ips[0];
+  return &ips[0];
 }
 
 void IPAddressEthernetInfo::on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
                                         const network::IPAddress &dns2) {
   char buf[network::IP_ADDRESS_BUFFER_SIZE];
-  pick_primary_address(ips).str_to(buf);
+  const network::IPAddress *primary = pick_primary_address(ips, this->ignore_link_local_);
+  if (primary != nullptr) {
+    primary->str_to(buf);
+  } else {
+    buf[0] = '\0';  // only a link-local address so far, and it is hidden
+  }
   this->publish_state(buf);
   uint8_t sensor = 0;
   for (const auto &ip : ips) {
-    if (ip.is_set()) {
+    if (ip.is_set() && !(this->ignore_link_local_ && is_link_local(ip))) {
       if (this->ip_sensors_[sensor] != nullptr) {
         ip.str_to(buf);
         this->ip_sensors_[sensor]->publish_state(buf);

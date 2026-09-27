@@ -51,3 +51,4 @@ text_sensor:
   - platform: ethernet_info
     ip_address:
       name: IP address
+      ignore_link_local: true

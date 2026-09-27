@@ -107,8 +107,20 @@ to that repo including its host tests, which pass):
 Upstream's `ip_address` text sensor publishes slot 0 of the address array, which
 is always the IPv4 slot, so on an IPv6‑only node it reads `0.0.0.0` (found on
 the first hardware test). The overrides publish IPv4 if set, else the first
-routable IPv6 address, else the link‑local. The `address_0`…`address_4`
-sub‑sensors were already correct and are unchanged.
+non‑link‑local IPv6 address (ULA or global), else the link‑local. Confirmed on
+the ESP32‑C3: the sensor shows the `fd69:…` ULA.
+
+`ignore_link_local: true` hides `fe80::` addresses from both the main value and
+the `address_0`…`address_4` sub‑sensors. Until a ULA or global address exists
+the main value is then empty rather than the link‑local.
+
+```yaml
+text_sensor:
+  - platform: wifi_info        # or ethernet_info
+    ip_address:
+      name: IP
+      ignore_link_local: true
+```
 
 ## Requirements
 

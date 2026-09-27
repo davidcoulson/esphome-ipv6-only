@@ -97,6 +97,8 @@
      # The C++ initializers are DEFAULT_REBOOT_TIMEOUT, power save NONE and minimum
      # auth WPA2; skip the setters when the config matches them.
      if (reboot_timeout := config[CONF_REBOOT_TIMEOUT]) != cv.time_period(
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi/__pycache__/__init__.cpython-312.pyc and components/wifi/__pycache__/__init__.cpython-312.pyc differ
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi/__pycache__/wpa2_eap.cpython-312.pyc and components/wifi/__pycache__/wpa2_eap.cpython-312.pyc differ
 --- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
 +++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-26 21:22:14.055314255 +0000
 @@ -35,6 +35,11 @@
@@ -281,6 +283,7 @@
      # Allow ethernet + wifi coexistence only when both are declared in network: priority:.
      if "wifi" in fv.full_config.get():
          priority_ifaces = get_priority_interfaces_from_full_config(fv.full_config.get())
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/ethernet/__pycache__/__init__.cpython-312.pyc and components/ethernet/__pycache__/__init__.cpython-312.pyc differ
 --- a/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:40:09.593908868 +0000
 +++ b/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:42:41.067204259 +0000
 @@ -348,6 +348,8 @@
@@ -389,6 +392,8 @@
    if (err != ESP_OK) {
      if (err == ESP_ERR_ESP_NETIF_INVALID_PARAMS) {
        // This is a programming error, not a transient failure
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/sntp/__pycache__/__init__.cpython-312.pyc and components/sntp/__pycache__/__init__.cpython-312.pyc differ
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/sntp/__pycache__/time.cpython-312.pyc and components/sntp/__pycache__/time.cpython-312.pyc differ
 --- a/esphome/components/sntp/sntp_component.cpp	2026-09-26 22:14:54.736341055 +0000
 +++ b/esphome/components/sntp/sntp_component.cpp	2026-09-27 00:42:41.191683688 +0000
 @@ -3,6 +3,17 @@
@@ -551,79 +556,231 @@
              ),
          }
      ).extend(cv.COMPONENT_SCHEMA),
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi_info/__pycache__/__init__.cpython-312.pyc and components/wifi_info/__pycache__/__init__.cpython-312.pyc differ
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi_info/__pycache__/text_sensor.cpython-312.pyc and components/wifi_info/__pycache__/text_sensor.cpython-312.pyc differ
+--- a/esphome/components/wifi_info/text_sensor.py	2026-09-27 01:32:11.942137843 +0000
++++ b/esphome/components/wifi_info/text_sensor.py	2026-09-27 01:47:20.492266872 +0000
+@@ -36,6 +36,8 @@
+     "PowerSaveModeWiFiInfo", text_sensor.TextSensor, cg.Component
+ )
+ 
++CONF_IGNORE_LINK_LOCAL = "ignore_link_local"
++
+ CONFIG_SCHEMA = cv.Schema(
+     {
+         cv.Optional(CONF_IP_ADDRESS): text_sensor.text_sensor_schema(
+@@ -47,7 +49,9 @@
+                 )
+                 for x in range(5)
+             }
+-        ),
++        )
++        # esphome-ipv6-only: hide fe80:: addresses from the main value and address_N.
++        .extend({cv.Optional(CONF_IGNORE_LINK_LOCAL, default=False): cv.boolean}),
+         cv.Optional(CONF_SCAN_RESULTS): text_sensor.text_sensor_schema(
+             ScanResultsWiFiInfo, entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+         ),
+@@ -110,6 +114,8 @@
+     if conf := config.get(CONF_IP_ADDRESS):
+         wifi_info = await text_sensor.new_text_sensor(config[CONF_IP_ADDRESS])
+         await cg.register_component(wifi_info, config[CONF_IP_ADDRESS])
++        if conf[CONF_IGNORE_LINK_LOCAL]:
++            cg.add(wifi_info.set_ignore_link_local(True))
+         for x in range(5):
+             if sensor_conf := conf.get(f"address_{x}"):
+                 sens = await text_sensor.new_text_sensor(sensor_conf)
 --- a/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:32:11.942192443 +0000
-+++ b/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:32:11.976214282 +0000
-@@ -21,10 +21,34 @@
++++ b/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:47:20.491903496 +0000
+@@ -19,16 +19,56 @@
  
- void IPAddressWiFiInfo::dump_config() { LOG_TEXT_SENSOR("", "IP Address", this); }
+ void IPAddressWiFiInfo::setup() { wifi::global_wifi_component->add_ip_state_listener(this); }
  
-+// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
-+// therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
-+// instead: IPv4 if set, else the first routable IPv6 address, else the first
-+// address that is set at all (the link-local). The address_N sub-sensors are
-+// unchanged: they already list only the addresses that are set.
-+static const network::IPAddress &pick_primary_address(const network::IPAddresses &ips) {
-+  if (ips[0].is_set())
-+    return ips[0];
-+#ifdef USE_ESP32
-+  for (const auto &ip : ips) {
-+    if (ip.is_set() && ip.is_ip6()) {
-+      const ip_addr_t addr = ip;
-+      if (!ip6_addr_islinklocal(ip_2_ip6(&addr)))
-+        return ip;
-+    }
-+  }
-+#endif
-+  for (const auto &ip : ips) {
-+    if (ip.is_set())
-+      return ip;
-+  }
-+  return ips[0];
+-void IPAddressWiFiInfo::dump_config() { LOG_TEXT_SENSOR("", "IP Address", this); }
++void IPAddressWiFiInfo::dump_config() {
++  LOG_TEXT_SENSOR("", "IP Address", this);
++  if (this->ignore_link_local_)
++    ESP_LOGCONFIG(TAG, "  Ignore link-local: YES");
 +}
 +
++// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
++// therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
++// instead: IPv4 if set, else the first non-link-local IPv6 address (ULA or
++// global), else - unless ignore_link_local is set - the link-local address.
++static bool is_link_local(const network::IPAddress &ip) {
++#ifdef USE_ESP32
++  if (ip.is_ip6()) {
++    const ip_addr_t addr = ip;
++    return ip6_addr_islinklocal(ip_2_ip6(&addr));
++  }
++#endif
++  return false;
++}
++
++// nullptr only when ignore_link_local is set and nothing else is usable yet.
++static const network::IPAddress *pick_primary_address(const network::IPAddresses &ips, bool ignore_link_local) {
++  if (ips[0].is_set())
++    return &ips[0];
++  for (const auto &ip : ips) {
++    if (ip.is_set() && !is_link_local(ip))
++      return &ip;
++  }
++  if (ignore_link_local)
++    return nullptr;
++  for (const auto &ip : ips) {
++    if (ip.is_set())
++      return &ip;
++  }
++  return &ips[0];
++}
+ 
  void IPAddressWiFiInfo::on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
                                      const network::IPAddress &dns2) {
    char buf[network::IP_ADDRESS_BUFFER_SIZE];
 -  ips[0].str_to(buf);
-+  pick_primary_address(ips).str_to(buf);
++  const network::IPAddress *primary = pick_primary_address(ips, this->ignore_link_local_);
++  if (primary != nullptr) {
++    primary->str_to(buf);
++  } else {
++    buf[0] = '\0';  // only a link-local address so far, and it is hidden
++  }
    this->publish_state(buf);
    uint8_t sensor = 0;
    for (const auto &ip : ips) {
+-    if (ip.is_set()) {
++    if (ip.is_set() && !(this->ignore_link_local_ && is_link_local(ip))) {
+       if (this->ip_sensors_[sensor] != nullptr) {
+         ip.str_to(buf);
+         this->ip_sensors_[sensor]->publish_state(buf);
+--- a/esphome/components/wifi_info/wifi_info_text_sensor.h	2026-09-27 01:32:11.942361054 +0000
++++ b/esphome/components/wifi_info/wifi_info_text_sensor.h	2026-09-27 01:47:20.492135938 +0000
+@@ -17,6 +17,8 @@
+   void setup() override;
+   void dump_config() override;
+   void add_ip_sensors(uint8_t index, text_sensor::TextSensor *s) { this->ip_sensors_[index] = s; }
++  // esphome-ipv6-only: never publish fe80:: addresses (main value and address_N).
++  void set_ignore_link_local(bool ignore) { this->ignore_link_local_ = ignore; }
+ 
+   // WiFiIPStateListener interface
+   void on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
+@@ -24,6 +26,7 @@
+ 
+  protected:
+   std::array<text_sensor::TextSensor *, 5> ip_sensors_{};
++  bool ignore_link_local_{false};
+ };
+ 
+ class DNSAddressWifiInfo final : public Component, public text_sensor::TextSensor, public wifi::WiFiIPStateListener {
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/ethernet_info/__pycache__/__init__.cpython-312.pyc and components/ethernet_info/__pycache__/__init__.cpython-312.pyc differ
+Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/ethernet_info/__pycache__/text_sensor.cpython-312.pyc and components/ethernet_info/__pycache__/text_sensor.cpython-312.pyc differ
 --- a/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:32:11.947829881 +0000
-+++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:32:11.976444053 +0000
-@@ -12,10 +12,34 @@
++++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:47:20.492389910 +0000
+@@ -10,16 +10,56 @@
+ #ifdef USE_ETHERNET_IP_STATE_LISTENERS
+ void IPAddressEthernetInfo::setup() { ethernet::global_eth_component->add_ip_state_listener(this); }
  
- void IPAddressEthernetInfo::dump_config() { LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this); }
- 
-+// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
-+// therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
-+// instead: IPv4 if set, else the first routable IPv6 address, else the first
-+// address that is set at all (the link-local). The address_N sub-sensors are
-+// unchanged: they already list only the addresses that are set.
-+static const network::IPAddress &pick_primary_address(const network::IPAddresses &ips) {
-+  if (ips[0].is_set())
-+    return ips[0];
-+#ifdef USE_ESP32
-+  for (const auto &ip : ips) {
-+    if (ip.is_set() && ip.is_ip6()) {
-+      const ip_addr_t addr = ip;
-+      if (!ip6_addr_islinklocal(ip_2_ip6(&addr)))
-+        return ip;
-+    }
-+  }
-+#endif
-+  for (const auto &ip : ips) {
-+    if (ip.is_set())
-+      return ip;
-+  }
-+  return ips[0];
+-void IPAddressEthernetInfo::dump_config() { LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this); }
++void IPAddressEthernetInfo::dump_config() {
++  LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this);
++  if (this->ignore_link_local_)
++    ESP_LOGCONFIG(TAG, "  Ignore link-local: YES");
 +}
 +
++// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
++// therefore "0.0.0.0" on an IPv6-only node. Publish the most useful address
++// instead: IPv4 if set, else the first non-link-local IPv6 address (ULA or
++// global), else - unless ignore_link_local is set - the link-local address.
++static bool is_link_local(const network::IPAddress &ip) {
++#ifdef USE_ESP32
++  if (ip.is_ip6()) {
++    const ip_addr_t addr = ip;
++    return ip6_addr_islinklocal(ip_2_ip6(&addr));
++  }
++#endif
++  return false;
++}
++
++// nullptr only when ignore_link_local is set and nothing else is usable yet.
++static const network::IPAddress *pick_primary_address(const network::IPAddresses &ips, bool ignore_link_local) {
++  if (ips[0].is_set())
++    return &ips[0];
++  for (const auto &ip : ips) {
++    if (ip.is_set() && !is_link_local(ip))
++      return &ip;
++  }
++  if (ignore_link_local)
++    return nullptr;
++  for (const auto &ip : ips) {
++    if (ip.is_set())
++      return &ip;
++  }
++  return &ips[0];
++}
+ 
  void IPAddressEthernetInfo::on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
                                          const network::IPAddress &dns2) {
    char buf[network::IP_ADDRESS_BUFFER_SIZE];
 -  ips[0].str_to(buf);
-+  pick_primary_address(ips).str_to(buf);
++  const network::IPAddress *primary = pick_primary_address(ips, this->ignore_link_local_);
++  if (primary != nullptr) {
++    primary->str_to(buf);
++  } else {
++    buf[0] = '\0';  // only a link-local address so far, and it is hidden
++  }
    this->publish_state(buf);
    uint8_t sensor = 0;
    for (const auto &ip : ips) {
+-    if (ip.is_set()) {
++    if (ip.is_set() && !(this->ignore_link_local_ && is_link_local(ip))) {
+       if (this->ip_sensors_[sensor] != nullptr) {
+         ip.str_to(buf);
+         this->ip_sensors_[sensor]->publish_state(buf);
+--- a/esphome/components/ethernet_info/ethernet_info_text_sensor.h	2026-09-27 01:32:11.947842994 +0000
++++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.h	2026-09-27 01:47:20.492542626 +0000
+@@ -16,6 +16,8 @@
+   void setup() override;
+   void dump_config() override;
+   void add_ip_sensors(uint8_t index, text_sensor::TextSensor *s) { this->ip_sensors_[index] = s; }
++  // esphome-ipv6-only: never publish fe80:: addresses (main value and address_N).
++  void set_ignore_link_local(bool ignore) { this->ignore_link_local_ = ignore; }
+ 
+   // EthernetIPStateListener interface
+   void on_ip_state(const network::IPAddresses &ips, const network::IPAddress &dns1,
+@@ -23,6 +25,7 @@
+ 
+  protected:
+   std::array<text_sensor::TextSensor *, 5> ip_sensors_{};
++  bool ignore_link_local_{false};
+ };
+ 
+ class DNSAddressEthernetInfo final : public Component,
+--- a/esphome/components/ethernet_info/text_sensor.py	2026-09-27 01:32:11.947857265 +0000
++++ b/esphome/components/ethernet_info/text_sensor.py	2026-09-27 01:47:20.492640201 +0000
+@@ -25,6 +25,8 @@
+     "MACAddressEthernetInfo", text_sensor.TextSensor, cg.Component
+ )
+ 
++CONF_IGNORE_LINK_LOCAL = "ignore_link_local"
++
+ CONFIG_SCHEMA = cv.Schema(
+     {
+         cv.Optional(CONF_IP_ADDRESS): text_sensor.text_sensor_schema(
+@@ -36,7 +38,9 @@
+                 )
+                 for x in range(5)
+             }
+-        ),
++        )
++        # esphome-ipv6-only: hide fe80:: addresses from the main value and address_N.
++        .extend({cv.Optional(CONF_IGNORE_LINK_LOCAL, default=False): cv.boolean}),
+         cv.Optional(CONF_DNS_ADDRESS): text_sensor.text_sensor_schema(
+             DNSAddressEthernetInfo, entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+         ),
+@@ -57,6 +61,8 @@
+     if conf := config.get(CONF_IP_ADDRESS):
+         ip_info = await text_sensor.new_text_sensor(config[CONF_IP_ADDRESS])
+         await cg.register_component(ip_info, config[CONF_IP_ADDRESS])
++        if conf[CONF_IGNORE_LINK_LOCAL]:
++            cg.add(ip_info.set_ignore_link_local(True))
+         for x in range(5):
+             if sensor_conf := conf.get(f"address_{x}"):
+                 sens = await text_sensor.new_text_sensor(sensor_conf)

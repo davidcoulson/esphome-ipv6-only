@@ -36,6 +36,9 @@ text_sensor:
   - platform: wifi_info
     ip_address:
       name: IP address
+      ignore_link_local: true
+      address_0:
+        name: IP address 0
 
 gateway_watchdog:
   id: gw_wd
