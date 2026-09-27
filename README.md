@@ -16,7 +16,7 @@ web server listen on v6, and ESP‑IDF's mDNS announces AAAA records.
 It also ships the same `ipv6_only` option for the `ethernet` component, a
 small override of the `sntp` component (lwIP's SNTP client resolves server
 names IPv4‑first and never falls back to AAAA), and an IPv6‑capable copy of
-[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog).
+[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog) (now upstream there as v1.2.0).
 
 [esphome/issues#7117]: https://github.com/esphome/issues/issues/7117
 
@@ -89,37 +89,16 @@ untouched). Compile‑tested on an ESP32‑POE‑ISO (LAN8720) config.
 
 ### gateway_watchdog
 
-Upstream esphome-gateway-watchdog is inert on an IPv6‑only node rather than
-wrong: it reads the IPv4 gateway from `esp_netif_get_ip_info()`, gets 0.0.0.0,
-and never starts a ping session (no reboots, sensors stay NaN). The copy in
-`components/gateway_watchdog/` (diff in `gateway-watchdog-ipv6.patch`, applies
-to that repo including its host tests, which pass):
-
-- targets are `ip_addr_t`, so `target:` accepts an IPv6 literal and `esp_ping`
-  sends ICMPv6 echo for it;
-- with no `target:` and no IPv4 gateway, it watches the first live IPv6 default
-  router from lwIP's ND6 default‑router list (`lwip/priv/nd6_priv.h`, a private
-  header that ESP‑IDF ships). That is the router's link‑local address, i.e.
-  exactly the next hop the node forwards through.
-
-### wifi_info / ethernet_info
-
-Upstream's `ip_address` text sensor publishes slot 0 of the address array, which
-is always the IPv4 slot, so on an IPv6‑only node it reads `0.0.0.0` (found on
-the first hardware test). The overrides publish IPv4 if set, else the first
-non‑link‑local IPv6 address (ULA or global), else the link‑local. Confirmed on
-the ESP32‑C3: the sensor shows the `fd69:…` ULA.
-
-`ignore_link_local: true` hides `fe80::` addresses from both the main value and
-the `address_0`…`address_4` sub‑sensors. Until a ULA or global address exists
-the main value is then empty rather than the link‑local.
+Not part of this repo any more: IPv6 support is in
+[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog)
+itself since **v1.2.0**. With no IPv4 gateway it watches the IPv6 default router
+learned from router advertisements, and binds the ping to that interface so
+link‑local echo works. Use it directly:
 
 ```yaml
-text_sensor:
-  - platform: wifi_info        # or ethernet_info
-    ip_address:
-      name: IP
-      ignore_link_local: true
+external_components:
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+    components: [gateway_watchdog]
 ```
 
 ## Requirements
@@ -138,7 +117,7 @@ text_sensor:
 ```yaml
 external_components:
   - source: github://davidcoulson/esphome-ipv6-only@main
-    components: [wifi, wifi_info, sntp]   # add ethernet, ethernet_info, gateway_watchdog as needed
+    components: [wifi, wifi_info, sntp]   # add ethernet, ethernet_info as needed
 
 network:
   enable_ipv6: true
@@ -199,8 +178,7 @@ esphome config example.yaml
 
 Then regenerate `upstream.patch` with `diff -ruN` against the pristine copy.
 The patch is small (~300 changed lines) and touches stable code; expect it to
-apply cleanly across most releases. `gateway-watchdog-ipv6.patch` applies to
-the esphome-gateway-watchdog repo the same way.
+apply cleanly across most releases.
 
 ## Upstream
 
@@ -219,9 +197,7 @@ components/wifi/          full copy of ESPHome 2026.9.0 wifi + patch
 components/ethernet/      full copy of ESPHome 2026.9.0 ethernet + patch
 components/sntp/          full copy of ESPHome 2026.9.0 sntp + patch
 components/wifi_info/, components/ethernet_info/  ip_address sensor fix
-components/gateway_watchdog/  esphome-gateway-watchdog with IPv6 targets / ND6 router
 upstream.patch            the diff against that ESPHome release (wifi, ethernet, sntp, wifi_info, ethernet_info)
-gateway-watchdog-ipv6.patch   the diff against esphome-gateway-watchdog (incl. tests)
 example.yaml              complete IPv6-only device config
 c3-test.yaml              ESP32-C3 hardware test config (ESP-IDF 6.1.0)
 tests/compile-test.yaml   secrets-free Wi-Fi config for `esphome config` / `compile`

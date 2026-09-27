@@ -7,10 +7,12 @@ esp32:
     type: esp-idf
 
 external_components:
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+    components: [gateway_watchdog]
   - source:
       type: local
       path: ../components
-    components: [wifi, wifi_info, sntp, gateway_watchdog]
+    components: [wifi, wifi_info, sntp]
 
 network:
   enable_ipv6: true
