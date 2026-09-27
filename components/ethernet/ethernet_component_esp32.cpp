@@ -462,6 +462,18 @@ void EthernetComponent::ethernet_lazy_init_() {
   /* attach Ethernet driver to TCP/IP stack */
   err = esp_netif_attach(this->eth_netif_, esp_eth_new_netif_glue(this->eth_handle_));
   ESPHL_ERROR_CHECK(err, "ETH netif attach error");
+#if USE_NETWORK_IPV6
+  // esphome-ipv6-only: MACs with a hardware address filter (the ESP32/P4 internal
+  // EMAC) drop any multicast whose group was not added. lwIP never adds the IPv6
+  // all-nodes group, so router advertisements were dropped and SLAAC never ran.
+  {
+    uint8_t all_nodes[6] = {0x33, 0x33, 0x00, 0x00, 0x00, 0x01};
+    esp_err_t filter_err = esp_eth_ioctl(this->eth_handle_, ETH_CMD_ADD_MAC_FILTER, all_nodes);
+    if (filter_err != ESP_OK) {
+      ESP_LOGD(TAG, "IPv6 all-nodes multicast filter not added: %s", esp_err_to_name(filter_err));
+    }
+  }
+#endif /* USE_NETWORK_IPV6 */
 
   // Register user defined event handers
   err = esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &EthernetComponent::eth_event_handler, nullptr);

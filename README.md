@@ -87,6 +87,13 @@ logs `IPv6 link-local … ready`, and warns if duplicate address detection
 fails. It applies to every Ethernet build that pulls this `ethernet`, with or
 without `ipv6_only`.
 
+It also registers the IPv6 all-nodes multicast address (`33:33:00:00:00:01`)
+with the Ethernet MAC. The ESP32/P4 internal EMAC runs a hardware address
+filter with "pass all multicast" off, and lwIP never adds all-nodes, so every
+router advertisement was dropped in hardware: link-local worked, SLAAC never
+ran, and `IPv6 Router: none`. The W5500 passes IPv6 multicast regardless (it
+logs one "IPv6 multicast is always filtered in by W5500" warning at boot).
+
 ### Ethernet
 
 `ethernet: ipv6_only: true` does the equivalent for wired nodes. Upstream
