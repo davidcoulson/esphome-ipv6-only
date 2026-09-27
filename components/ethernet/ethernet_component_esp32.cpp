@@ -759,7 +759,11 @@ void EthernetComponent::got_ip6_event_handler(void *arg, esp_event_base_t event_
   ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
   // esphome-ipv6-only: INFO, not VERBOSE, so a new IPv6 address is visible at normal log levels.
   ESP_LOGI(TAG, "IPv6 address " IPV6STR, IPV62STR(event->ip6_info.ip));
-  global_eth_component->ipv6_count_ += 1;
+  // esphome-ipv6-only: count the addresses on the interface, not the events.
+  // Recreating the link-local after a link flap fires another event for the
+  // same address, which let min_ipv6_addr_count pass on the link-local alone.
+  struct esp_ip6_addr if_ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
+  global_eth_component->ipv6_count_ = esp_netif_get_all_ip6(global_eth_component->eth_netif_, if_ip6s);
 #if defined(USE_ETHERNET_IPV6_ONLY)
   // esphome-ipv6-only: connected on IPv6 alone, no IPv4 address expected.
   global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
