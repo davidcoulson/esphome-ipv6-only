@@ -49,7 +49,7 @@ ethernet:
     mode: CLK_EXT_IN
     pin: GPIO50
   phy_addr: 1
-  ipv6_only: true
+  enable_ipv4: false
   # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
   # use_address: "[2001:db8::...]"
 

@@ -419,13 +419,27 @@ def _validate(config: ConfigType) -> ConfigType:
     return config
 
 
-# esphome-ipv6-only fork: connect on IPv6 alone, never run the DHCPv4 client.
+# esphome-ipv6-only fork: `enable_ipv4: false` connects on IPv6 alone and never
+# runs the DHCPv4 client. `ipv6_only` was the option's earlier name.
+CONF_ENABLE_IPV4 = "enable_ipv4"
 CONF_IPV6_ONLY = "ipv6_only"
+
+
+def _validate_enable_ipv4(value):
+    """enable_ipv4 defaults on everywhere; only ESP32 can turn it off."""
+    value = cv.boolean(value)
+    if not value and not CORE.is_esp32:
+        raise cv.Invalid("enable_ipv4: false is only supported on ESP32")
+    return value
+
 
 BASE_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(EthernetComponent),
-        cv.Optional(CONF_IPV6_ONLY, default=False): cv.All(cv.boolean, cv.only_on_esp32),
+        cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
+        cv.Optional(CONF_IPV6_ONLY): cv.invalid(
+            "ipv6_only was renamed: use `enable_ipv4: false`"
+        ),
         cv.Optional(
             CONF_MANUAL_IP, visibility=cv.Visibility.ADVANCED
         ): MANUAL_IP_SCHEMA,
@@ -663,7 +677,7 @@ async def to_code(config: ConfigType) -> None:
         cg.add_define("USE_ETHERNET_MANUAL_IP")
         cg.add(var.set_manual_ip(manual_ip(config[CONF_MANUAL_IP])))
 
-    if config[CONF_IPV6_ONLY]:
+    if not config[CONF_ENABLE_IPV4]:
         cg.add_define("USE_ETHERNET_IPV6_ONLY")
         # Shared with the wifi override; the sntp override keys on it.
         cg.add_define("USE_NETWORK_IPV6_ONLY")
@@ -859,32 +873,32 @@ def _final_validate_rmii_pins(config: ConfigType) -> None:
             raise cv.Invalid(error_msg, path=pin_path)
 
 
-def _validate_ipv6_only(config: ConfigType) -> None:
+def _validate_enable_ipv4_off(config: ConfigType) -> None:
     """esphome-ipv6-only: same rules as the wifi override."""
-    if not config.get(CONF_IPV6_ONLY):
+    if config.get(CONF_ENABLE_IPV4, True):
         return
     network_config = fv.full_config.get().get("network", {})
     if not network_config.get(CONF_ENABLE_IPV6, False):
         raise cv.Invalid(
-            "ethernet: ipv6_only requires `network: enable_ipv6: true`.",
-            [CONF_IPV6_ONLY],
+            "ethernet: enable_ipv4: false requires `network: enable_ipv6: true`.",
+            [CONF_ENABLE_IPV4],
         )
     if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
         raise cv.Invalid(
-            "ethernet: ipv6_only requires `network: min_ipv6_addr_count` of at least 1 "
+            "ethernet: enable_ipv4: false requires `network: min_ipv6_addr_count` of at least 1 "
             "(2 waits for a routable address as well as the link-local one).",
-            [CONF_IPV6_ONLY],
+            [CONF_ENABLE_IPV4],
         )
     if CONF_MANUAL_IP in config:
         raise cv.Invalid(
-            "ethernet: ipv6_only cannot be combined with manual_ip (a static IPv4 address).",
-            [CONF_IPV6_ONLY],
+            "ethernet: enable_ipv4: false cannot be combined with manual_ip (a static IPv4 address).",
+            [CONF_ENABLE_IPV4],
         )
 
 
 def _final_validate(config: ConfigType) -> None:
     """Final validation for Ethernet component."""
-    _validate_ipv6_only(config)
+    _validate_enable_ipv4_off(config)
     # Allow ethernet + wifi coexistence only when both are declared in network: priority:.
     if "wifi" in fv.full_config.get():
         priority_ifaces = get_priority_interfaces_from_full_config(fv.full_config.get())

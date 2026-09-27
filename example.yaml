@@ -18,7 +18,7 @@ esp32:
     version: ${idf_version}
 
 external_components:
-  # Replaces the built-in wifi component (same name, same schema plus ipv6_only).
+  # Replaces the built-in wifi component (same name, same schema plus enable_ipv4).
   - source:
       type: local
       path: components
@@ -36,7 +36,7 @@ network:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  ipv6_only: true
+  enable_ipv4: false
   # What `esphome run`/`esphome logs` connects to. mDNS resolves the .local name
   # to the AAAA record; give a literal IPv6 in brackets if your resolver won't.
   # use_address: "[2001:db8:1::1234]"

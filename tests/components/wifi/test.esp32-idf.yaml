@@ -1,2 +1,2 @@
 packages:
-  ipv6_only: !include common.yaml
+  ipv6_only_test: !include common.yaml

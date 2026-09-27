@@ -44,7 +44,7 @@ ethernet:
   reset_pin: GPIO9
   interrupt_pin: GPIO10
   clock_speed: 25MHz
-  ipv6_only: true
+  enable_ipv4: false
   # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
   # use_address: "[2001:db8::...]"
 

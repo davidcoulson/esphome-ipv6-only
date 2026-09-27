@@ -159,8 +159,19 @@ CONF_BAND_MODE = "band_mode"
 CONF_MIN_AUTH_MODE = "min_auth_mode"
 CONF_PHY_MODE = "phy_mode"
 CONF_POST_CONNECT_ROAMING = "post_connect_roaming"
-# esphome-ipv6-only fork: connect on IPv6 alone, never run the DHCPv4 client.
+# esphome-ipv6-only fork: `enable_ipv4: false` connects on IPv6 alone and never
+# runs the DHCPv4 client. `ipv6_only` was the option's earlier name.
+CONF_ENABLE_IPV4 = "enable_ipv4"
 CONF_IPV6_ONLY = "ipv6_only"
+
+
+def _validate_enable_ipv4(value):
+    """enable_ipv4 defaults on everywhere; only ESP32 can turn it off."""
+    value = cv.boolean(value)
+    if not value and not CORE.is_esp32:
+        raise cv.Invalid("enable_ipv4: false is only supported on ESP32")
+    return value
+
 
 # Maximum number of WiFi networks that can be configured
 # Limited to 127 because selected_sta_index_ is int8_t in C++
@@ -352,31 +363,31 @@ def _apply_min_auth_mode_default(config):
     return config
 
 
-def _validate_ipv6_only(config):
-    """ipv6_only needs the network component's IPv6 stack and a non-zero
+def _validate_enable_ipv4_off(config):
+    """enable_ipv4: false needs the network component's IPv6 stack and a non-zero
     min_ipv6_addr_count, otherwise the connect gate would open with no address
     at all. A static IPv4 (manual_ip) contradicts it."""
-    if not config.get(CONF_IPV6_ONLY):
+    if config.get(CONF_ENABLE_IPV4, True):
         return config
     full_config = fv.full_config.get()
     network_config = full_config.get("network", {})
     if not network_config.get(CONF_ENABLE_IPV6, False):
         raise cv.Invalid(
-            "wifi: ipv6_only requires `network: enable_ipv6: true`.",
-            [CONF_IPV6_ONLY],
+            "wifi: enable_ipv4: false requires `network: enable_ipv6: true`.",
+            [CONF_ENABLE_IPV4],
         )
     if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
         raise cv.Invalid(
-            "wifi: ipv6_only requires `network: min_ipv6_addr_count` of at least 1 "
+            "wifi: enable_ipv4: false requires `network: min_ipv6_addr_count` of at least 1 "
             "(2 waits for a routable address as well as the link-local one).",
-            [CONF_IPV6_ONLY],
+            [CONF_ENABLE_IPV4],
         )
     if CONF_MANUAL_IP in config or any(
         CONF_MANUAL_IP in net for net in config.get(CONF_NETWORKS, [])
     ):
         raise cv.Invalid(
-            "wifi: ipv6_only cannot be combined with manual_ip (a static IPv4 address).",
-            [CONF_IPV6_ONLY],
+            "wifi: enable_ipv4: false cannot be combined with manual_ip (a static IPv4 address).",
+            [CONF_ENABLE_IPV4],
         )
     return config
 
@@ -422,7 +433,7 @@ def _consume_wifi_sockets(config: ConfigType) -> ConfigType:
 FINAL_VALIDATE_SCHEMA = cv.All(
     # Runs first: upstream's final_validate returns None, so anything after it
     # no longer sees the config.
-    _validate_ipv6_only,
+    _validate_enable_ipv4_off,
     final_validate,
     validate_variant,
     _consume_wifi_sockets,
@@ -545,8 +556,9 @@ CONFIG_SCHEMA = cv.All(
             ): cv.enum(WIFI_POWER_SAVE_MODES, upper=True),
             cv.Optional(CONF_FAST_CONNECT, default=False): _fast_connect_schema,
             cv.Optional(CONF_USE_ADDRESS): cv.string_strict,
-            cv.Optional(CONF_IPV6_ONLY, default=False): cv.All(
-                cv.boolean, cv.only_on_esp32
+            cv.Optional(CONF_ENABLE_IPV4, default=True): _validate_enable_ipv4,
+            cv.Optional(CONF_IPV6_ONLY): cv.invalid(
+                "ipv6_only was renamed: use `enable_ipv4: false`"
             ),
             cv.Optional(CONF_MIN_AUTH_MODE): cv.All(
                 VALIDATE_WIFI_MIN_AUTH_MODE,
@@ -713,7 +725,7 @@ async def to_code(config):
     if has_manual_ip:
         cg.add_define("USE_WIFI_MANUAL_IP")
 
-    if config[CONF_IPV6_ONLY]:
+    if not config[CONF_ENABLE_IPV4]:
         cg.add_define("USE_WIFI_IPV6_ONLY")
         # Shared with the ethernet override; the sntp override keys on it.
         cg.add_define("USE_NETWORK_IPV6_ONLY")

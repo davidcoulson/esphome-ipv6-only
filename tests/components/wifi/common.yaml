@@ -5,7 +5,7 @@ network:
 wifi:
   ssid: MySSID
   password: password1
-  ipv6_only: true
+  enable_ipv4: false
 
 api:
 

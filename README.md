@@ -7,13 +7,15 @@ Upstream ESPHome can't do this. Its `wifi` component only reports *connected*
 once it holds an IPv4 address, and it only starts IPv6 address configuration
 from the DHCPv4 "got IP" event, so on a v6‑only network the device sits in
 *connecting* forever ([esphome/issues#7117]). This is a drop‑in replacement for
-the `wifi` component that adds one option, `ipv6_only: true`.
+the `wifi` component that adds one option, `enable_ipv4: false`. (It was called
+`ipv6_only: true` before 2026‑09‑27; the old name now fails validation with a
+pointer to the new one.)
 
 Everything downstream already works without IPv4: the socket layer binds
 `AF_INET6` sockets when IPv6 is enabled, so the native API, OTA, logger and
 web server listen on v6, and ESP‑IDF's mDNS announces AAAA records.
 
-It also ships the same `ipv6_only` option for the `ethernet` component, a
+It also ships the same `enable_ipv4` option for the `ethernet` component, a
 small override of the `sntp` component (lwIP's SNTP client resolves server
 names IPv4‑first and never falls back to AAAA), and an IPv6‑capable copy of
 [esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog) (now upstream there as v1.2.0).
@@ -31,10 +33,10 @@ from.
    which is also where the ESP‑IDF examples do it. This is the actual root cause
    of "never connects": without a v4 lease upstream never creates the link‑local
    address, so no router solicitation is ever sent. This change applies to every
-   build of this fork, `ipv6_only` or not, and is harmless on dual‑stack.
-2. **The connect gate accepts IPv6 alone** (`ipv6_only` only). `connected`
+   build of this fork, IPv4 enabled or not, and is harmless on dual‑stack.
+2. **The connect gate accepts IPv6 alone** (`enable_ipv4: false` only). `connected`
    becomes `associated && ipv6_addresses >= network.min_ipv6_addr_count`.
-3. **The DHCPv4 client is never started** (`ipv6_only` only). Nothing IPv4 goes
+3. **The DHCPv4 client is never started** (`enable_ipv4: false` only). Nothing IPv4 goes
    on the wire. This also matters for routing: esp_netif only makes an interface
    lwIP's default route on link‑up when its DHCP client is stopped, otherwise it
    waits for a lease and `ip6_route()` has no default netif for off‑link
@@ -44,7 +46,7 @@ from.
    and can't be silenced per tag (ESPHome builds IDF without dynamic log
    levels).
 
-With `ipv6_only`, DNS servers are learned from the RA RDNSS option (RFC 8106)
+With `enable_ipv4: false`, DNS servers are learned from the RA RDNSS option (RFC 8106)
 and from stateless DHCPv6 (RA "O" flag): the fork sets
 `CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS=2`, `CONFIG_LWIP_IPV6_DHCP6=y` and calls
 `dhcp6_enable_stateless()` after the link‑local address is created.
@@ -58,7 +60,7 @@ so the client gets an unreachable IPv4 address, `udp_sendto()` fails with no
 route, and it retries forever. ESP‑IDF exposes no Kconfig to flip that default,
 and ESPHome's `servers:` validator also rejects IPv6 literals.
 
-The `sntp` override (ESP32 + `ipv6_only` builds only; other platforms are
+The `sntp` override (ESP32 builds with `enable_ipv4: false` only; other platforms are
 untouched):
 
 - waits in `loop()` for the network *and* a usable resolver (the RDNSS / DHCPv6
@@ -85,7 +87,7 @@ address at all until the link drops; seen on both GPS NTP boards (W5500 and
 P4/IP101). The override keeps retrying every 5 s until link-local is usable,
 logs `IPv6 link-local … ready`, and warns if duplicate address detection
 fails. It applies to every Ethernet build that pulls this `ethernet`, with or
-without `ipv6_only`.
+with IPv4 enabled.
 
 It also registers the IPv6 all-nodes multicast address (`33:33:00:00:00:01`)
 with the Ethernet MAC. The ESP32/P4 internal EMAC runs a hardware address
@@ -100,7 +102,7 @@ SLAAC ULA and the RA default router, and serve NTP over IPv6.
 
 ### Ethernet
 
-`ethernet: ipv6_only: true` does the equivalent for wired nodes. Upstream
+`ethernet: enable_ipv4: false` does the equivalent for wired nodes. Upstream
 already creates the link‑local address on link‑up (with a retry), so only two
 things change: the connect gate becomes `ipv6_addresses >= min_ipv6_addr_count`
 with no `got_ipv4_address_` term, and the DHCPv4 client is left stopped after
@@ -161,7 +163,7 @@ text_sensor:
 |---|---|
 | ESPHome | 2026.9.0 (the fork is a copy of that release's `wifi`, `ethernet` and `sntp` components; see *Rebasing*) |
 | Platform | ESP32 family, ESP‑IDF framework. The Arduino framework on ESP32 shares the same code path and validates, but is untested. |
-| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`ipv6_only` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
+| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`enable_ipv4` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
 | Hardware‑tested | ESP32‑C3, ESP‑IDF 6.1.0, IPv6‑only Wi‑Fi (SLAAC, no DHCPv4): connects, is discovered over mDNS, holds a Home Assistant API connection, takes OTA updates and serves `esphome logs`, learns DNS from the router advertisement, syncs SNTP, and the gateway watchdog (v1.2.0) watches the RA default router, all over IPv6. |
 | Not supported | ESP8266, RP2040, LibreTiny (their status comes from the Arduino `WL_CONNECTED` flag, which itself waits for IPv4). |
 | Network | Router advertisements with a prefix for SLAAC. RDNSS or DHCPv6 "O" flag if the device must resolve names. |
@@ -180,7 +182,7 @@ network:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  ipv6_only: true
+  enable_ipv4: false
 
 time:
   - platform: sntp
@@ -189,7 +191,7 @@ time:
 
 `example.yaml` is a complete device config. `c3-test.yaml` is the hardware test
 config for an ESP32‑C3 on ESP‑IDF 6.1.0 with the watchdog in report‑only mode and
-verbose Wi‑Fi/SNTP logs; its header lists what to look for in the log. Validation rejects `ipv6_only`
+verbose Wi‑Fi/SNTP logs; its header lists what to look for in the log. Validation rejects `enable_ipv4: false`
 without `enable_ipv6: true`, with `min_ipv6_addr_count: 0`, or together with
 `manual_ip`.
 
@@ -237,7 +239,7 @@ apply cleanly across most releases.
 ## Upstream
 
 The proper fix is a PR against esphome/esphome. Change 1 is a plain bug fix.
-Changes 2 and 3 are the `ipv6_only` option and are orthogonal to the open
+Changes 2 and 3 are the `enable_ipv4` option and are orthogonal to the open
 [esphome/esphome#14526] ("Allow disabling IPv4"), which compiles IPv4 out of
 lwIP but still registers `wifi` and `ethernet` as requiring it; this fork keeps
 IPv4 in the stack and only stops depending on a lease.
