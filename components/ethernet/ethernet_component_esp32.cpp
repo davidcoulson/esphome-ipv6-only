@@ -142,8 +142,7 @@ void EthernetComponent::loop() {
 #ifdef USE_ETHERNET_DISCONNECT_TRIGGER
         this->disconnect_trigger_.trigger();
 #endif
-      } else {
-        this->finish_connect_();
+      } else if (this->finish_connect_()) {
         // When connected and stable, disable the loop to save CPU cycles
         this->disable_loop();
       }
@@ -770,28 +769,51 @@ void EthernetComponent::enable_stateless_dhcp6_() {
 }
 #endif /* USE_NETWORK_IPV6 */
 
-void EthernetComponent::finish_connect_() {
+bool EthernetComponent::finish_connect_() {
 #if USE_NETWORK_IPV6
-  // Retry IPv6 link-local setup if it failed during initial connect
-  // This handles the case where min_ipv6_addr_count is NOT set (or is 0),
-  // allowing us to reach CONNECTED state with just IPv4.
-  // If IPv6 setup failed in start_connect_() because the interface wasn't ready:
-  // - Bootup timing issues (#10281)
-  // - Cable unplugged/network interruption (#10705)
-  // We can now retry since we're in CONNECTED state and the interface is definitely up.
-  if (!this->ipv6_setup_done_) {
-    esp_err_t err = esp_netif_create_ip6_linklocal(this->eth_netif_);
-    if (err == ESP_OK) {
-      ESP_LOGD(TAG, "IPv6 link-local address created (retry succeeded)");
-      this->enable_stateless_dhcp6_();
-    }
-    // Always set the flag to prevent continuous retries
-    // If IPv6 setup fails here with the interface up and stable, it's
-    // likely a persistent issue (IPv6 disabled at router, hardware
-    // limitation, etc.) that won't be resolved by further retries.
-    // The device continues to work with IPv4.
-    this->ipv6_setup_done_ = true;
+  // esphome-ipv6-only: upstream retries the link-local address exactly once here
+  // and then gives up, so a board whose retry misses never gets IPv6 until the
+  // link drops. Keep the loop alive and retry until link-local is usable.
+  if (this->ipv6_setup_done_)
+    return true;
+  auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(this->eth_netif_));
+  if (netif == nullptr)
+    return false;
+  u8_t state;
+  {
+    LwIPLock lock;
+    state = netif_ip6_addr_state(netif, 0);
   }
+  if (ip6_addr_isvalid(state)) {
+    char buf[IPADDR_STRLEN_MAX];
+    {
+      LwIPLock lock;
+      ip6addr_ntoa_r(netif_ip6_addr(netif, 0), buf, sizeof(buf));
+    }
+    ESP_LOGI(TAG, "IPv6 link-local %s ready", buf);
+    this->ipv6_setup_done_ = true;
+    return true;
+  }
+  if (ip6_addr_istentative(state))
+    return false;  // duplicate address detection still running
+  if (ip6_addr_isduplicated(state) && !this->ipv6_duplicate_logged_) {
+    ESP_LOGW(TAG, "IPv6 link-local failed duplicate address detection; retrying");
+    this->ipv6_duplicate_logged_ = true;
+  }
+  const uint32_t now = millis();
+  if (this->ipv6_last_attempt_ != 0 && now - this->ipv6_last_attempt_ < 5000)
+    return false;
+  this->ipv6_last_attempt_ = now;
+  esp_err_t err = esp_netif_create_ip6_linklocal(this->eth_netif_);
+  if (err == ESP_OK) {
+    ESP_LOGD(TAG, "IPv6 link-local address created");
+    this->enable_stateless_dhcp6_();
+  } else {
+    ESP_LOGW(TAG, "esp_netif_create_ip6_linklocal failed: %s", esp_err_to_name(err));
+  }
+  return false;
+#else
+  return true;
 #endif /* USE_NETWORK_IPV6 */
 }
 
@@ -800,6 +822,8 @@ void EthernetComponent::start_connect_() {
 #if USE_NETWORK_IPV6
   global_eth_component->ipv6_count_ = 0;
   this->ipv6_setup_done_ = false;
+  this->ipv6_duplicate_logged_ = false;
+  this->ipv6_last_attempt_ = 0;
 #endif /* USE_NETWORK_IPV6 */
   this->connect_begin_ = millis();
   this->status_set_warning(LOG_STR("waiting for IP configuration"));

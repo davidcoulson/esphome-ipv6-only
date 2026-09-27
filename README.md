@@ -76,6 +76,17 @@ a literal IPv6 address, or a name in your own DNS with only an AAAA record
 (that last one works even with upstream, because the A lookup then fails and
 lwIP does fall back to AAAA).
 
+### Ethernet link-local fix (dual-stack too)
+
+Stock ESPHome tries to create the Ethernet IPv6 link-local address once when
+the link comes up (usually too early) and retries exactly once after the DHCPv4
+lease, then gives up. When that retry misses, the board runs with no IPv6
+address at all until the link drops; seen on both GPS NTP boards (W5500 and
+P4/IP101). The override keeps retrying every 5 s until link-local is usable,
+logs `IPv6 link-local … ready`, and warns if duplicate address detection
+fails. It applies to every Ethernet build that pulls this `ethernet`, with or
+without `ipv6_only`.
+
 ### Ethernet
 
 `ethernet: ipv6_only: true` does the equivalent for wired nodes. Upstream

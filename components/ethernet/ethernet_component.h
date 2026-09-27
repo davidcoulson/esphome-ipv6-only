@@ -218,7 +218,9 @@ class EthernetComponent final : public Component {
 
  protected:
   void start_connect_();
-  void finish_connect_();
+  /// esphome-ipv6-only: returns false while IPv6 link-local setup is still pending,
+  /// so loop() stays enabled and retries.
+  bool finish_connect_();
   void dump_connect_params_();
 
 #ifdef USE_ESP32
@@ -348,6 +350,8 @@ class EthernetComponent final : public Component {
 #if LWIP_IPV6
   uint8_t ipv6_count_{0};
   bool ipv6_setup_done_{false};
+  bool ipv6_duplicate_logged_{false};
+  uint32_t ipv6_last_attempt_{0};
   // esphome-ipv6-only: no-op unless USE_ETHERNET_IPV6_ONLY.
   void enable_stateless_dhcp6_();
 #endif /* LWIP_IPV6 */
