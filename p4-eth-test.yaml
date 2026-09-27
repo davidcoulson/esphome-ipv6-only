@@ -54,8 +54,19 @@ ethernet:
   # use_address: "[2001:db8::...]"
 
 logger:
-  level: DEBUG
+  # VERBOSE so link up/down shows as "[Ethernet event] ETH connected/disconnected".
+  level: VERBOSE
   hardware_uart: UART0
+  logs:
+    api: DEBUG
+    api.connection: DEBUG
+    api.socket: DEBUG
+    component: DEBUG
+    scheduler: DEBUG
+    sensor: DEBUG
+    text_sensor: DEBUG
+    esp32.preferences: DEBUG
+    mdns: DEBUG
 
 api:
   encryption:
