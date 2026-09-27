@@ -97,8 +97,6 @@
      # The C++ initializers are DEFAULT_REBOOT_TIMEOUT, power save NONE and minimum
      # auth WPA2; skip the setters when the config matches them.
      if (reboot_timeout := config[CONF_REBOOT_TIMEOUT]) != cv.time_period(
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi/__pycache__/__init__.cpython-312.pyc and components/wifi/__pycache__/__init__.cpython-312.pyc differ
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi/__pycache__/wpa2_eap.cpython-312.pyc and components/wifi/__pycache__/wpa2_eap.cpython-312.pyc differ
 --- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
 +++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-26 21:22:14.055314255 +0000
 @@ -35,6 +35,11 @@
@@ -283,7 +281,6 @@ Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca
      # Allow ethernet + wifi coexistence only when both are declared in network: priority:.
      if "wifi" in fv.full_config.get():
          priority_ifaces = get_priority_interfaces_from_full_config(fv.full_config.get())
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/ethernet/__pycache__/__init__.cpython-312.pyc and components/ethernet/__pycache__/__init__.cpython-312.pyc differ
 --- a/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:40:09.593908868 +0000
 +++ b/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:42:41.067204259 +0000
 @@ -348,6 +348,8 @@
@@ -392,8 +389,6 @@ Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca
    if (err != ESP_OK) {
      if (err == ESP_ERR_ESP_NETIF_INVALID_PARAMS) {
        // This is a programming error, not a transient failure
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/sntp/__pycache__/__init__.cpython-312.pyc and components/sntp/__pycache__/__init__.cpython-312.pyc differ
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/sntp/__pycache__/time.cpython-312.pyc and components/sntp/__pycache__/time.cpython-312.pyc differ
 --- a/esphome/components/sntp/sntp_component.cpp	2026-09-26 22:14:54.736341055 +0000
 +++ b/esphome/components/sntp/sntp_component.cpp	2026-09-27 00:42:41.191683688 +0000
 @@ -3,6 +3,17 @@
@@ -556,8 +551,6 @@ Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca
              ),
          }
      ).extend(cv.COMPONENT_SCHEMA),
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi_info/__pycache__/__init__.cpython-312.pyc and components/wifi_info/__pycache__/__init__.cpython-312.pyc differ
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/wifi_info/__pycache__/text_sensor.cpython-312.pyc and components/wifi_info/__pycache__/text_sensor.cpython-312.pyc differ
 --- a/esphome/components/wifi_info/text_sensor.py	2026-09-27 01:32:11.942137843 +0000
 +++ b/esphome/components/wifi_info/text_sensor.py	2026-09-27 01:47:20.492266872 +0000
 @@ -36,6 +36,8 @@
@@ -670,8 +663,6 @@ Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca
  };
  
  class DNSAddressWifiInfo final : public Component, public text_sensor::TextSensor, public wifi::WiFiIPStateListener {
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/ethernet_info/__pycache__/__init__.cpython-312.pyc and components/ethernet_info/__pycache__/__init__.cpython-312.pyc differ
-Binary files /tmp/claude-0/-home-user-claude-notes/b747ff4e-d7f6-5e9f-b9e8-7fdca2f58bba/scratchpad/work/esphome/components/ethernet_info/__pycache__/text_sensor.cpython-312.pyc and components/ethernet_info/__pycache__/text_sensor.cpython-312.pyc differ
 --- a/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:32:11.947829881 +0000
 +++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:47:20.492389910 +0000
 @@ -10,16 +10,56 @@
