@@ -1,0 +1,75 @@
+# IPv6-only ESPHome device on Wi-Fi (ESP32, ESP-IDF).
+#
+# The network has router advertisements (SLAAC) and no DHCPv4 server. Upstream
+# ESPHome never reports "connected" on such a network; this config uses the
+# patched wifi component in ./components to connect on IPv6 alone.
+substitutions:
+  name: ipv6-only-test
+  board: esp32dev
+  idf_version: recommended
+
+esphome:
+  name: ${name}
+
+esp32:
+  board: ${board}
+  framework:
+    type: esp-idf
+    version: ${idf_version}
+
+external_components:
+  # Replaces the built-in wifi component (same name, same schema plus ipv6_only).
+  - source:
+      type: local
+      path: components
+    components: [wifi, sntp]
+  # or, from GitHub:
+  # - source: github://davidcoulson/esphome-ipv6-only@main
+  #   components: [wifi, sntp]
+
+network:
+  enable_ipv6: true
+  # 1 = link-local is enough, 2 = also wait for a routable (SLAAC) address.
+  # Use 2 unless Home Assistant sits on the same link.
+  min_ipv6_addr_count: 2
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ipv6_only: true
+  # What `esphome run`/`esphome logs` connects to. mDNS resolves the .local name
+  # to the AAAA record; give a literal IPv6 in brackets if your resolver won't.
+  # use_address: "[2001:db8:1::1234]"
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+time:
+  # Patched sntp: resolves servers IPv6-first once the network is up, so names
+  # with both A and AAAA records work. Needs a resolver from RA RDNSS or DHCPv6.
+  # Only 2.pool.ntp.org has AAAA records in the public pool; a literal IPv6
+  # address (your router) also works.
+  - platform: sntp
+    servers:
+      - 2.pool.ntp.org
+      # - "2001:db8:1::1"
+  # Alternative with no outbound dependency at all: Home Assistant pushes time.
+  # - platform: homeassistant
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IP address
+    ssid:
+      name: SSID
+
+button:
+  - platform: restart
+    name: Restart

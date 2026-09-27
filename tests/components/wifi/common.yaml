@@ -1,0 +1,14 @@
+network:
+  enable_ipv6: true
+  min_ipv6_addr_count: 2
+
+wifi:
+  ssid: MySSID
+  password: password1
+  ipv6_only: true
+
+api:
+
+time:
+  - platform: sntp
+    servers: [2.pool.ntp.org, "2001:db8:1::1"]

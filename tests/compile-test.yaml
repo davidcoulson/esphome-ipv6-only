@@ -1,0 +1,49 @@
+esphome:
+  name: ipv6-only-compile-test
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [wifi, sntp, gateway_watchdog]
+
+network:
+  enable_ipv6: true
+  min_ipv6_addr_count: 2
+
+wifi:
+  ssid: MySSID
+  password: password1
+  ipv6_only: true
+
+logger:
+api:
+
+time:
+  - platform: sntp
+    servers:
+      - 2.pool.ntp.org
+      - "2001:db8:1::1"
+ota:
+  - platform: esphome
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IP address
+
+gateway_watchdog:
+  id: gw_wd
+  reboot: false
+  target: "fe80::1"   # IPv6 literal target accepted by the patched watchdog
+
+sensor:
+  - platform: gateway_watchdog
+    gateway_watchdog_id: gw_wd
+    packet_loss:
+      name: Gateway packet loss

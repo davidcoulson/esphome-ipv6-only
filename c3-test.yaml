@@ -1,0 +1,100 @@
+# Hardware test config: ESP32-C3 (4 MB flash), ESP-IDF 6.1.0, IPv6-only Wi-Fi.
+#
+#   esphome run c3-test.yaml --device /dev/cu.usbserial-0001
+#
+# What to look for in the log, in order:
+#   [wifi] Connected                       <- the gate opened on IPv6 alone
+#   IP Address: fe80::... and 2xxx::...    <- link-local + SLAAC address, no v4
+#   [sntp] Server 0 '...' -> 2xxx::...     <- resolved IPv6-first
+#   [sntp] Synchronized time: ...
+#   [gateway_watchdog] watching fe80::...  <- ND6 default router, ICMPv6 echo
+#   one "E esp_netif_handlers: invalid static ip" per association is expected
+# Home Assistant should discover the node over mDNS (AAAA) and connect on v6.
+substitutions:
+  name: ipv6-c3-test
+
+esphome:
+  name: ${name}
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+    version: 6.1.0
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [wifi, sntp, gateway_watchdog]
+    # or: source: github://davidcoulson/esphome-ipv6-only@main
+
+network:
+  enable_ipv6: true
+  min_ipv6_addr_count: 2
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ipv6_only: true
+  # If `esphome run` can't resolve ${name}.local to the AAAA record, set:
+  # use_address: "[2001:db8::...]"
+
+logger:
+  # VERBOSE for wifi (each "IPv6 address=" event as it arrives) and sntp
+  # (resolution results); the chatty tags stay at DEBUG.
+  level: VERBOSE
+  logs:
+    api: DEBUG
+    api.connection: DEBUG
+    api.socket: DEBUG
+    component: DEBUG
+    scheduler: DEBUG
+    sensor: DEBUG
+    text_sensor: DEBUG
+    esp32.preferences: DEBUG
+    mdns: DEBUG
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+time:
+  - platform: sntp
+    servers: [2.pool.ntp.org]
+
+gateway_watchdog:
+  id: gw_wd
+  reboot: false          # report only while we are testing
+  arm_delay: 30s
+  ping_interval: 5s
+  reboot_window: 60s
+
+debug:
+  update_interval: 60s
+
+sensor:
+  - platform: gateway_watchdog
+    gateway_watchdog_id: gw_wd
+    packet_loss:
+      name: Gateway packet loss
+      internal: false
+    round_trip_time:
+      name: Gateway RTT
+      internal: false
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IP address
+  - platform: debug
+    reset_reason:
+      name: Reset reason
+
+button:
+  - platform: restart
+    name: Restart

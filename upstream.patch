@@ -1,0 +1,553 @@
+--- a/esphome/components/wifi/__init__.py	2026-09-16 08:47:05.000000000 +0000
++++ b/esphome/components/wifi/__init__.py	2026-09-27 00:42:41.191161215 +0000
+@@ -33,6 +33,7 @@
+     CONF_DOMAIN,
+     CONF_EAP,
+     CONF_ENABLE_BTM,
++    CONF_ENABLE_IPV6,
+     CONF_ENABLE_ON_BOOT,
+     CONF_ENABLE_RRM,
+     CONF_FAST_CONNECT,
+@@ -42,6 +43,7 @@
+     CONF_IDENTITY,
+     CONF_KEY,
+     CONF_MANUAL_IP,
++    CONF_MIN_IPV6_ADDR_COUNT,
+     CONF_NETWORKS,
+     CONF_ON_CONNECT,
+     CONF_ON_DISCONNECT,
+@@ -157,6 +159,8 @@
+ CONF_MIN_AUTH_MODE = "min_auth_mode"
+ CONF_PHY_MODE = "phy_mode"
+ CONF_POST_CONNECT_ROAMING = "post_connect_roaming"
++# esphome-ipv6-only fork: connect on IPv6 alone, never run the DHCPv4 client.
++CONF_IPV6_ONLY = "ipv6_only"
+ 
+ # Maximum number of WiFi networks that can be configured
+ # Limited to 127 because selected_sta_index_ is int8_t in C++
+@@ -348,6 +352,35 @@
+     return config
+ 
+ 
++def _validate_ipv6_only(config):
++    """ipv6_only needs the network component's IPv6 stack and a non-zero
++    min_ipv6_addr_count, otherwise the connect gate would open with no address
++    at all. A static IPv4 (manual_ip) contradicts it."""
++    if not config.get(CONF_IPV6_ONLY):
++        return config
++    full_config = fv.full_config.get()
++    network_config = full_config.get("network", {})
++    if not network_config.get(CONF_ENABLE_IPV6, False):
++        raise cv.Invalid(
++            "wifi: ipv6_only requires `network: enable_ipv6: true`.",
++            [CONF_IPV6_ONLY],
++        )
++    if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
++        raise cv.Invalid(
++            "wifi: ipv6_only requires `network: min_ipv6_addr_count` of at least 1 "
++            "(2 waits for a routable address as well as the link-local one).",
++            [CONF_IPV6_ONLY],
++        )
++    if CONF_MANUAL_IP in config or any(
++        CONF_MANUAL_IP in net for net in config.get(CONF_NETWORKS, [])
++    ):
++        raise cv.Invalid(
++            "wifi: ipv6_only cannot be combined with manual_ip (a static IPv4 address).",
++            [CONF_IPV6_ONLY],
++        )
++    return config
++
++
+ def final_validate(config):
+     has_sta = bool(config.get(CONF_NETWORKS, True))
+     has_ap = CONF_AP in config
+@@ -387,6 +420,9 @@
+ 
+ 
+ FINAL_VALIDATE_SCHEMA = cv.All(
++    # Runs first: upstream's final_validate returns None, so anything after it
++    # no longer sees the config.
++    _validate_ipv6_only,
+     final_validate,
+     validate_variant,
+     _consume_wifi_sockets,
+@@ -509,6 +545,9 @@
+             ): cv.enum(WIFI_POWER_SAVE_MODES, upper=True),
+             cv.Optional(CONF_FAST_CONNECT, default=False): _fast_connect_schema,
+             cv.Optional(CONF_USE_ADDRESS): cv.string_strict,
++            cv.Optional(CONF_IPV6_ONLY, default=False): cv.All(
++                cv.boolean, cv.only_on_esp32
++            ),
+             cv.Optional(CONF_MIN_AUTH_MODE): cv.All(
+                 VALIDATE_WIFI_MIN_AUTH_MODE,
+                 cv.only_on([Platform.ESP32, Platform.ESP8266]),
+@@ -674,6 +713,15 @@
+     if has_manual_ip:
+         cg.add_define("USE_WIFI_MANUAL_IP")
+ 
++    if config[CONF_IPV6_ONLY]:
++        cg.add_define("USE_WIFI_IPV6_ONLY")
++        # Shared with the ethernet override; the sntp override keys on it.
++        cg.add_define("USE_NETWORK_IPV6_ONLY")
++        # Name resolution without an IPv4 resolver: take DNS servers from the
++        # RA RDNSS option (RFC 8106) and from stateless DHCPv6 (RA "O" flag).
++        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
++        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
++
+     # The C++ initializers are DEFAULT_REBOOT_TIMEOUT, power save NONE and minimum
+     # auth WPA2; skip the setters when the config matches them.
+     if (reboot_timeout := config[CONF_REBOOT_TIMEOUT]) != cv.time_period(
+--- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
++++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-26 21:22:14.055314255 +0000
+@@ -35,6 +35,11 @@
+ #include "lwip/apps/sntp.h"
+ #include "lwip/dns.h"
+ #include "lwip/err.h"
++#ifdef USE_WIFI_IPV6_ONLY
++#include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
++#include "lwip/dhcp6.h"
++#include "lwip/netif.h"
++#endif  // USE_WIFI_IPV6_ONLY
+ 
+ #include "esphome/core/application.h"
+ #include "esphome/core/hal.h"
+@@ -572,6 +577,22 @@
+   }
+ 
+   if (!manual_ip.has_value()) {
++#ifdef USE_WIFI_IPV6_ONLY
++    // esphome-ipv6-only: never run the DHCPv4 client. Besides keeping IPv4 off the
++    // wire, this matters for routing: esp_netif only makes a netif lwIP's default
++    // route on link-up when its DHCP client is stopped (otherwise it waits for a
++    // lease that will never come, and ip6_route() has no default netif for
++    // off-link destinations). Known cosmetic side effect: esp_netif then takes
++    // the static-IPv4 path on association and, seeing 0.0.0.0, logs one
++    // "E esp_netif_handlers: invalid static ip" line per connect. It cannot be
++    // silenced per tag because ESPHome builds IDF without dynamic log levels.
++    (void) dhcp_status;
++    err = esp_netif_dhcpc_stop(s_sta_netif);
++    if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
++      ESP_LOGV(TAG, "Stopping DHCP client failed: %s", esp_err_to_name(err));
++    }
++    return true;
++#else
+     // lwIP starts the SNTP client if it gets an SNTP server from DHCP. We don't need the time, and more importantly,
+     // the built-in SNTP client has a memory leak in certain situations. Disable this feature.
+     // https://github.com/esphome/issues/issues/2299
+@@ -593,6 +614,7 @@
+       return err == ESP_OK;
+     }
+     return true;
++#endif  // USE_WIFI_IPV6_ONLY
+   }
+ 
+   esp_netif_ip_info_t info;  // struct of ip4_addr_t with ip, netmask, gw
+@@ -829,6 +851,23 @@
+              (const char *) it.ssid, bssid_buf, it.channel, get_auth_mode_str(it.authmode));
+ #endif
+     s_sta_connected = true;
++#if USE_NETWORK_IPV6
++    // esphome-ipv6-only: create the link-local address (which starts SLAAC) as soon
++    // as the link is up. Upstream does this from the IP_EVENT_STA_GOT_IP handler,
++    // i.e. only after a DHCPv4 lease, so a network without DHCPv4 never gets any
++    // IPv6 address at all (esphome/issues#7117). This is also where the ESP-IDF
++    // examples do it. Safe ordering: this runs from loop() when the queued event
++    // is processed, long after esp_netif's own STA_CONNECTED handler brought
++    // the netif up on the event task.
++    esp_netif_create_ip6_linklocal(s_sta_netif);
++#if defined(USE_WIFI_IPV6_ONLY) && LWIP_IPV6_DHCP6
++    // Stateless DHCPv6 (RA "O" flag) for DNS servers; esp_netif never starts it.
++    if (auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(s_sta_netif)); netif != nullptr) {
++      LwIPLock lock;
++      dhcp6_enable_stateless(netif);
++    }
++#endif
++#endif /* USE_NETWORK_IPV6 */
+     if (this->state_ == WIFI_COMPONENT_STATE_STA_CONNECTED) {
+       // Driver-initiated roam: the WIFI_REASON_ROAMING disconnect was ignored,
+       // so the state machine never left STA_CONNECTED.
+@@ -881,9 +920,7 @@
+ 
+   } else if (data->event_base == IP_EVENT && data->event_id == IP_EVENT_STA_GOT_IP) {
+     const auto &it = data->data.ip_got_ip;
+-#if USE_NETWORK_IPV6
+-    esp_netif_create_ip6_linklocal(s_sta_netif);
+-#endif /* USE_NETWORK_IPV6 */
++    // esphome-ipv6-only: esp_netif_create_ip6_linklocal() moved to WIFI_EVENT_STA_CONNECTED.
+     ESP_LOGV(TAG, "static_ip=" IPSTR " gateway=" IPSTR, IP2STR(&it.ip_info.ip), IP2STR(&it.ip_info.gw));
+     this->got_ipv4_address_ = true;
+ #ifdef USE_WIFI_IP_STATE_LISTENERS
+@@ -1042,6 +1079,14 @@
+ }
+ 
+ WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
++#ifdef USE_WIFI_IPV6_ONLY
++  // esphome-ipv6-only: connected once the configured number of IPv6 addresses is
++  // up. No IPv4 address is expected (the DHCPv4 client is never started).
++  // Config validation guarantees USE_NETWORK_MIN_IPV6_ADDR_COUNT >= 1.
++  if (s_sta_connected && this->num_ipv6_addresses_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT) {
++    return WiFiSTAConnectStatus::CONNECTED;
++  }
++#else
+   if (s_sta_connected && this->got_ipv4_address_) {
+ #if USE_NETWORK_IPV6 && (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
+     if (this->num_ipv6_addresses_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT) {
+@@ -1051,6 +1096,7 @@
+     return WiFiSTAConnectStatus::CONNECTED;
+ #endif /* USE_NETWORK_IPV6 */
+   }
++#endif  // USE_WIFI_IPV6_ONLY
+   if (s_sta_connect_error) {
+     return WiFiSTAConnectStatus::ERROR_CONNECT_FAILED;
+   }
+--- a/esphome/components/ethernet/__init__.py	2026-09-27 00:40:09.593701330 +0000
++++ b/esphome/components/ethernet/__init__.py	2026-09-27 00:42:41.066363203 +0000
+@@ -23,12 +23,14 @@
+     CONF_DNS1,
+     CONF_DNS2,
+     CONF_DOMAIN,
++    CONF_ENABLE_IPV6,
+     CONF_ENABLE_ON_BOOT,
+     CONF_GATEWAY,
+     CONF_ID,
+     CONF_INTERRUPT_PIN,
+     CONF_MAC_ADDRESS,
+     CONF_MANUAL_IP,
++    CONF_MIN_IPV6_ADDR_COUNT,
+     CONF_MISO_PIN,
+     CONF_MODE,
+     CONF_MOSI_PIN,
+@@ -417,9 +419,13 @@
+     return config
+ 
+ 
++# esphome-ipv6-only fork: connect on IPv6 alone, never run the DHCPv4 client.
++CONF_IPV6_ONLY = "ipv6_only"
++
+ BASE_SCHEMA = cv.Schema(
+     {
+         cv.GenerateID(): cv.declare_id(EthernetComponent),
++        cv.Optional(CONF_IPV6_ONLY, default=False): cv.All(cv.boolean, cv.only_on_esp32),
+         cv.Optional(
+             CONF_MANUAL_IP, visibility=cv.Visibility.ADVANCED
+         ): MANUAL_IP_SCHEMA,
+@@ -657,6 +663,16 @@
+         cg.add_define("USE_ETHERNET_MANUAL_IP")
+         cg.add(var.set_manual_ip(manual_ip(config[CONF_MANUAL_IP])))
+ 
++    if config[CONF_IPV6_ONLY]:
++        cg.add_define("USE_ETHERNET_IPV6_ONLY")
++        # Shared with the wifi override; the sntp override keys on it.
++        cg.add_define("USE_NETWORK_IPV6_ONLY")
++        if CORE.is_esp32:
++            from esphome.components.esp32 import add_idf_sdkconfig_option
++
++            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
++            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
++
+     # Add compile-time define for PHY types with specific code
+     if phy_define := _PHY_TYPE_TO_DEFINE.get(config[CONF_TYPE]):
+         cg.add_define(phy_define)
+@@ -843,8 +859,32 @@
+             raise cv.Invalid(error_msg, path=pin_path)
+ 
+ 
++def _validate_ipv6_only(config: ConfigType) -> None:
++    """esphome-ipv6-only: same rules as the wifi override."""
++    if not config.get(CONF_IPV6_ONLY):
++        return
++    network_config = fv.full_config.get().get("network", {})
++    if not network_config.get(CONF_ENABLE_IPV6, False):
++        raise cv.Invalid(
++            "ethernet: ipv6_only requires `network: enable_ipv6: true`.",
++            [CONF_IPV6_ONLY],
++        )
++    if network_config.get(CONF_MIN_IPV6_ADDR_COUNT, 0) < 1:
++        raise cv.Invalid(
++            "ethernet: ipv6_only requires `network: min_ipv6_addr_count` of at least 1 "
++            "(2 waits for a routable address as well as the link-local one).",
++            [CONF_IPV6_ONLY],
++        )
++    if CONF_MANUAL_IP in config:
++        raise cv.Invalid(
++            "ethernet: ipv6_only cannot be combined with manual_ip (a static IPv4 address).",
++            [CONF_IPV6_ONLY],
++        )
++
++
+ def _final_validate(config: ConfigType) -> None:
+     """Final validation for Ethernet component."""
++    _validate_ipv6_only(config)
+     # Allow ethernet + wifi coexistence only when both are declared in network: priority:.
+     if "wifi" in fv.full_config.get():
+         priority_ifaces = get_priority_interfaces_from_full_config(fv.full_config.get())
+--- a/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:40:09.593908868 +0000
++++ b/esphome/components/ethernet/ethernet_component.h	2026-09-27 00:42:41.067204259 +0000
+@@ -348,6 +348,8 @@
+ #if LWIP_IPV6
+   uint8_t ipv6_count_{0};
+   bool ipv6_setup_done_{false};
++  // esphome-ipv6-only: no-op unless USE_ETHERNET_IPV6_ONLY.
++  void enable_stateless_dhcp6_();
+ #endif /* LWIP_IPV6 */
+ 
+   optional<std::array<uint8_t, MAC_ADDRESS_SIZE>> fixed_mac_;
+--- a/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 00:40:09.593969477 +0000
++++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 00:42:41.067042573 +0000
+@@ -5,6 +5,11 @@
+ #include "esphome/core/application.h"
+ #include "esphome/core/helpers.h"
+ #include "esphome/core/log.h"
++#ifdef USE_ETHERNET_IPV6_ONLY
++#include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
++#include "lwip/dhcp6.h"
++#include "lwip/netif.h"
++#endif  // USE_ETHERNET_IPV6_ONLY
+ #include "w5500_custom_spi.h"
+ 
+ #include <lwip/dns.h>
+@@ -707,7 +712,12 @@
+   const esp_netif_ip_info_t *ip_info = &event->ip_info;
+   ESP_LOGV(TAG, "[Ethernet event] ETH Got IP " IPSTR, IP2STR(&ip_info->ip));
+   global_eth_component->got_ipv4_address_ = true;
+-#if USE_NETWORK_IPV6 && (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
++#if defined(USE_ETHERNET_IPV6_ONLY)
++  // esphome-ipv6-only: cannot happen (DHCPv4 client never started), but keep
++  // the gate IPv6-only regardless.
++  global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
++  global_eth_component->enable_loop_soon_any_context();
++#elif USE_NETWORK_IPV6 && (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
+   global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
+   global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
+ #else
+@@ -725,7 +735,10 @@
+   ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
+   ESP_LOGV(TAG, "[Ethernet event] ETH Got IPv6: " IPV6STR, IPV62STR(event->ip6_info.ip));
+   global_eth_component->ipv6_count_ += 1;
+-#if (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
++#if defined(USE_ETHERNET_IPV6_ONLY)
++  // esphome-ipv6-only: connected on IPv6 alone, no IPv4 address expected.
++  global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
++#elif (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
+   global_eth_component->connected_ =
+       global_eth_component->got_ipv4_address_ && (global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT);
+   global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
+@@ -739,6 +752,19 @@
+ }
+ #endif /* USE_NETWORK_IPV6 */
+ 
++#if USE_NETWORK_IPV6
++void EthernetComponent::enable_stateless_dhcp6_() {
++#if defined(USE_ETHERNET_IPV6_ONLY) && LWIP_IPV6_DHCP6
++  // esphome-ipv6-only: stateless DHCPv6 (RA "O" flag) for DNS servers; esp_netif
++  // never starts it.
++  if (auto *netif = static_cast<struct netif *>(esp_netif_get_netif_impl(this->eth_netif_)); netif != nullptr) {
++    LwIPLock lock;
++    dhcp6_enable_stateless(netif);
++  }
++#endif
++}
++#endif /* USE_NETWORK_IPV6 */
++
+ void EthernetComponent::finish_connect_() {
+ #if USE_NETWORK_IPV6
+   // Retry IPv6 link-local setup if it failed during initial connect
+@@ -752,6 +778,7 @@
+     esp_err_t err = esp_netif_create_ip6_linklocal(this->eth_netif_);
+     if (err == ESP_OK) {
+       ESP_LOGD(TAG, "IPv6 link-local address created (retry succeeded)");
++      this->enable_stateless_dhcp6_();
+     }
+     // Always set the flag to prevent continuous retries
+     // If IPv6 setup fails here with the interface up and stable, it's
+@@ -832,10 +859,18 @@
+   } else
+ #endif
+   {
++#ifdef USE_ETHERNET_IPV6_ONLY
++    // esphome-ipv6-only: leave the DHCPv4 client stopped (it was stopped above).
++    // With it stopped esp_netif makes this netif lwIP's default route on
++    // link-up instead of waiting for a lease. Cosmetic side effect, as in the
++    // wifi override: esp_netif logs "E esp_netif_handlers: invalid static ip"
++    // once per link-up because the static address is 0.0.0.0.
++#else
+     err = esp_netif_dhcpc_start(this->eth_netif_);
+     if (err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
+       ESPHL_ERROR_CHECK(err, "DHCPC start error");
+     }
++#endif
+   }
+ #if USE_NETWORK_IPV6
+   // Attempt to create IPv6 link-local address
+@@ -846,6 +881,9 @@
+   // - After disconnection/cable unplugged (#10705)
+   // We'll retry in finish_connect_() if it fails here.
+   err = esp_netif_create_ip6_linklocal(this->eth_netif_);
++  if (err == ESP_OK) {
++    this->enable_stateless_dhcp6_();
++  }
+   if (err != ESP_OK) {
+     if (err == ESP_ERR_ESP_NETIF_INVALID_PARAMS) {
+       // This is a programming error, not a transient failure
+--- a/esphome/components/sntp/sntp_component.cpp	2026-09-26 22:14:54.736341055 +0000
++++ b/esphome/components/sntp/sntp_component.cpp	2026-09-27 00:42:41.191683688 +0000
+@@ -3,6 +3,17 @@
+ 
+ #ifdef USE_ESP32
+ #include "esp_sntp.h"
++#ifdef USE_NETWORK_IPV6_ONLY
++#include "esphome/components/network/util.h"
++#include "esphome/core/hal.h"
++#include "esphome/core/helpers.h"
++#include "lwip/dns.h"
++#include "lwip/ip_addr.h"
++// lwIP's own setter (from lwip/apps/sntp.h). esp_sntp.h neither includes that
++// header nor wraps this function, and its wrappers for the other sntp_* names
++// would clash with the header, so declare just this one.
++extern "C" void sntp_setserver(u8_t idx, const ip_addr_t *server);
++#endif  // USE_NETWORK_IPV6_ONLY
+ #elif USE_ESP8266
+ #include "sntp.h"
+ #else
+@@ -24,17 +35,26 @@
+     esp_sntp_stop();
+   }
+   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
++#ifndef USE_NETWORK_IPV6_ONLY
+   size_t i = 0;
+   for (auto &server : this->servers_) {
+     esp_sntp_setservername(i++, server);
+   }
++#endif
++  // esphome-ipv6-only: with USE_NETWORK_IPV6_ONLY the servers are resolved in loop()
++  // once the network is up (see resolve_servers_()) and esp_sntp_init() runs there.
++  // lwIP's own resolution inside the SNTP client is IPv4-first
++  // (LWIP_DNS_ADDRTYPE_IPV4_IPV6): a pool name with A records resolves to an
++  // unreachable IPv4 address and it never falls back to AAAA.
+   esp_sntp_set_sync_interval(this->get_update_interval());
+   esp_sntp_set_time_sync_notification_cb([](struct timeval *tv) {
+     if (SNTPComponent::instance != nullptr) {
+       SNTPComponent::instance->defer([]() { SNTPComponent::instance->time_synced(); });
+     }
+   });
++#ifndef USE_NETWORK_IPV6_ONLY
+   esp_sntp_init();
++#endif
+ #else
+   sntp_stop();
+   sntp_setoperatingmode(SNTP_OPMODE_POLL);
+@@ -62,7 +82,54 @@
+   }
+   RealTimeClock::dump_config();
+ }
++#if defined(USE_ESP32) && defined(USE_NETWORK_IPV6_ONLY)
++static void sntp_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg) {
++  // Runs on the lwIP task with the core lock held: use the plain lwIP setter, the
++  // esp_sntp_* wrapper would try to take the lock again.
++  const auto idx = static_cast<u8_t>(reinterpret_cast<uintptr_t>(arg));
++  if (ipaddr == nullptr) {
++    ESP_LOGW(TAG, "Server %u '%s': not resolved", idx, name);
++    return;
++  }
++  sntp_setserver(idx, ipaddr);
++}
++
++bool SNTPComponent::resolve_servers_() {
++  bool resolver_ok = true;
++  size_t idx = 0;
++  for (auto &server : this->servers_) {
++    ip_addr_t addr;
++    err_t err;
++    {
++      // Literal addresses (IPv4 or IPv6) return ERR_OK immediately via ipaddr_aton().
++      LwIPLock lock;
++      err = dns_gethostbyname_addrtype(server, &addr, sntp_dns_found, reinterpret_cast<void *>(idx),
++                                       LWIP_DNS_ADDRTYPE_IPV6_IPV4);
++    }
++    if (err == ERR_OK) {
++      ESP_LOGD(TAG, "Server %zu '%s' -> %s", idx, server, ipaddr_ntoa(&addr));
++      esp_sntp_setserver(idx, &addr);  // outside the lock: this takes it itself
++    } else if (err == ERR_INPROGRESS) {
++      ESP_LOGV(TAG, "Server %zu '%s': resolving", idx, server);
++    } else {
++      // ERR_VAL: no DNS server configured yet (RDNSS / DHCPv6 not arrived).
++      ESP_LOGV(TAG, "Server %zu '%s': resolver not ready (%d)", idx, server, err);
++      resolver_ok = false;
++    }
++    idx++;
++  }
++  return resolver_ok;
++}
++#endif  // USE_ESP32 && USE_NETWORK_IPV6_ONLY
++
+ void SNTPComponent::update() {
++#if defined(USE_ESP32) && defined(USE_NETWORK_IPV6_ONLY)
++  // Refresh the resolved addresses at each sync interval; lwIP would have
++  // re-resolved a server *name* on every request, a set address is static.
++  if (this->sntp_started_ && network::is_connected()) {
++    this->resolve_servers_();
++  }
++#endif
+ #if !defined(USE_ESP32)
+   // Some platforms currently cannot set the sync interval at runtime so we need
+   // to do the re-sync by hand for now.
+@@ -74,6 +141,21 @@
+ #endif
+ }
+ void SNTPComponent::loop() {
++#if defined(USE_ESP32) && defined(USE_NETWORK_IPV6_ONLY)
++  if (!this->sntp_started_) {
++    // Wait for the network, then for a usable resolver, retrying every 5 s.
++    if (!network::is_connected())
++      return;
++    const uint32_t now = millis();
++    if (this->last_resolve_attempt_ != 0 && now - this->last_resolve_attempt_ < 5000)
++      return;
++    this->last_resolve_attempt_ = now;
++    if (!this->resolve_servers_())
++      return;
++    esp_sntp_init();
++    this->sntp_started_ = true;
++  }
++#endif
+ // The loop is used to infer whether we have valid time on platforms where we
+ // cannot tell whether SNTP has succeeded.
+ // One limitation of this approach is that we cannot tell if it was the SNTP
+--- a/esphome/components/sntp/sntp_component.h	2026-09-26 22:14:54.736404993 +0000
++++ b/esphome/components/sntp/sntp_component.h	2026-09-27 00:42:41.192003714 +0000
+@@ -35,6 +35,15 @@
+   std::array<const char *, SNTP_SERVER_COUNT> servers_;
+   bool has_time_{false};
+ 
++#if defined(USE_ESP32) && defined(USE_NETWORK_IPV6_ONLY)
++  /// esphome-ipv6-only: resolve every server IPv6-first and hand the address to
++  /// lwIP's SNTP client. Returns false when the resolver itself is not usable yet
++  /// (no DNS server learned from RDNSS/DHCPv6), so the caller retries later.
++  bool resolve_servers_();
++  bool sntp_started_{false};
++  uint32_t last_resolve_attempt_{0};
++#endif
++
+ #if defined(USE_ESP32)
+  private:
+   static SNTPComponent *instance;
+--- a/esphome/components/sntp/time.py	2026-09-26 22:14:54.736544479 +0000
++++ b/esphome/components/sntp/time.py	2026-09-26 22:16:26.944340535 +0000
+@@ -90,7 +90,16 @@
+         {
+             cv.GenerateID(): cv.declare_id(SNTPComponent),
+             cv.Optional(CONF_SERVERS, default=DEFAULT_SERVERS): cv.All(
+-                cv.ensure_list(cv.Any(cv.domain, cv.hostname)), cv.Length(min=1, max=3)
++                # esphome-ipv6-only: also accept IP literals, e.g. the router's IPv6 address.
++                cv.ensure_list(
++                    cv.Any(
++                        cv.domain,
++                        cv.hostname,
++                        cv.All(cv.ipv6address, str),
++                        cv.All(cv.ipv4address, str),
++                    )
++                ),
++                cv.Length(min=1, max=3),
+             ),
+         }
+     ).extend(cv.COMPONENT_SCHEMA),
