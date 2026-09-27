@@ -25,6 +25,11 @@
 #include <utility>
 #include "lwip/dns.h"
 #include "lwip/err.h"
+#if defined(USE_ESP32) && USE_NETWORK_IPV6
+#include <esp_netif_net_stack.h>
+#include "lwip/netif.h"
+#include "lwip/priv/nd6_priv.h"
+#endif
 
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -1275,6 +1280,39 @@ const LogString *get_signal_bars(int8_t rssi) {
   }
 }
 
+#if defined(USE_ESP32) && USE_NETWORK_IPV6
+// esphome-ipv6-only: log the IPv6 default routers learned from router
+// advertisements on this interface. lwIP keeps them in a private table
+// (lwip/priv/nd6_priv.h, shipped by ESP-IDF) owned by the tcpip thread.
+static void log_ipv6_routers(esp_netif_t *esp_netif) {
+  auto *netif = esp_netif == nullptr ? nullptr : static_cast<struct netif *>(esp_netif_get_netif_impl(esp_netif));
+  if (netif == nullptr)
+    return;
+  char addrs[LWIP_ND6_NUM_ROUTERS][IPADDR_STRLEN_MAX];
+  uint32_t lifetimes[LWIP_ND6_NUM_ROUTERS];
+  size_t count = 0;
+  {
+    LwIPLock lock;
+    for (int i = 0; i < LWIP_ND6_NUM_ROUTERS; i++) {
+      const auto &router = default_router_list[i];
+      if (router.neighbor_entry == nullptr || router.neighbor_entry->netif != netif || router.invalidation_timer == 0)
+        continue;
+      ip_addr_t addr;
+      ip_addr_copy_from_ip6(addr, router.neighbor_entry->next_hop_address);
+      ipaddr_ntoa_r(&addr, addrs[count], sizeof(addrs[count]));
+      lifetimes[count++] = router.invalidation_timer;
+    }
+  }
+  if (count == 0) {
+    ESP_LOGCONFIG(TAG, "  IPv6 Router: none (no router advertisement with a default route)");
+    return;
+  }
+  for (size_t i = 0; i < count; i++) {
+    ESP_LOGCONFIG(TAG, "  IPv6 Router: %s (lifetime %" PRIu32 " s)", addrs[i], lifetimes[i]);
+  }
+}
+#endif
+
 void WiFiComponent::print_connect_params_() {
   bssid_t bssid = wifi_bssid();
   char bssid_s[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
@@ -1308,6 +1346,9 @@ void WiFiComponent::print_connect_params_() {
                 get_wifi_channel(), wifi_subnet_mask_().str_to(subnet_buf), wifi_gateway_ip_().str_to(gateway_buf),
                 wifi_dns_ip_(0).str_to(dns1_buf), wifi_dns_ip_(1).str_to(dns2_buf));
   // clang-format on
+#if defined(USE_ESP32) && USE_NETWORK_IPV6
+  log_ipv6_routers(this->get_esp_netif_sta());
+#endif
 #ifdef ESPHOME_LOG_HAS_VERBOSE
   if (const WiFiAP *config = this->get_selected_sta_(); config && config->has_bssid()) {
     ESP_LOGV(TAG, "  Priority: %d", this->get_sta_priority(config->get_bssid()));

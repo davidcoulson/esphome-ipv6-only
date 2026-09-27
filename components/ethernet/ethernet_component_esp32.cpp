@@ -5,6 +5,11 @@
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#if USE_NETWORK_IPV6
+#include <esp_netif_net_stack.h>
+#include "lwip/netif.h"
+#include "lwip/priv/nd6_priv.h"
+#endif
 #ifdef USE_ETHERNET_IPV6_ONLY
 #include <esp_netif_net_stack.h>  // esp_netif_get_netif_impl()
 #include "lwip/dhcp6.h"
@@ -904,6 +909,39 @@ void EthernetComponent::start_connect_() {
   this->status_set_warning();
 }
 
+#if USE_NETWORK_IPV6
+// esphome-ipv6-only: log the IPv6 default routers learned from router
+// advertisements on this interface. lwIP keeps them in a private table
+// (lwip/priv/nd6_priv.h, shipped by ESP-IDF) owned by the tcpip thread.
+static void log_ipv6_routers(esp_netif_t *esp_netif) {
+  auto *netif = esp_netif == nullptr ? nullptr : static_cast<struct netif *>(esp_netif_get_netif_impl(esp_netif));
+  if (netif == nullptr)
+    return;
+  char addrs[LWIP_ND6_NUM_ROUTERS][IPADDR_STRLEN_MAX];
+  uint32_t lifetimes[LWIP_ND6_NUM_ROUTERS];
+  size_t count = 0;
+  {
+    LwIPLock lock;
+    for (int i = 0; i < LWIP_ND6_NUM_ROUTERS; i++) {
+      const auto &router = default_router_list[i];
+      if (router.neighbor_entry == nullptr || router.neighbor_entry->netif != netif || router.invalidation_timer == 0)
+        continue;
+      ip_addr_t addr;
+      ip_addr_copy_from_ip6(addr, router.neighbor_entry->next_hop_address);
+      ipaddr_ntoa_r(&addr, addrs[count], sizeof(addrs[count]));
+      lifetimes[count++] = router.invalidation_timer;
+    }
+  }
+  if (count == 0) {
+    ESP_LOGCONFIG(TAG, "  IPv6 Router: none (no router advertisement with a default route)");
+    return;
+  }
+  for (size_t i = 0; i < count; i++) {
+    ESP_LOGCONFIG(TAG, "  IPv6 Router: %s (lifetime %" PRIu32 " s)", addrs[i], lifetimes[i]);
+  }
+}
+#endif
+
 void EthernetComponent::dump_connect_params_() {
   if (!this->ethernet_initialized_) {
     ESP_LOGCONFIG(TAG, "  uninitialized/disabled");
@@ -963,6 +1001,7 @@ void EthernetComponent::dump_connect_params_() {
   for (int i = 0; i < count; i++) {
     ESP_LOGCONFIG(TAG, "  IPv6: " IPV6STR, IPV62STR(if_ip6s[i]));
   }
+  log_ipv6_routers(this->eth_netif_);
 #endif /* USE_NETWORK_IPV6 */
 }
 
