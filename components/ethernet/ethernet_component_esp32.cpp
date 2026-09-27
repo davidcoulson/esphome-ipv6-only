@@ -703,6 +703,14 @@ void EthernetComponent::eth_event_handler(void *arg, esp_event_base_t event_base
       break;
     case ETHERNET_EVENT_CONNECTED:
       event_name = "ETH connected";
+#if USE_NETWORK_IPV6
+      // esphome-ipv6-only: start SLAAC on link-up, not after the DHCPv4 lease. The
+      // netif glue's own handler was registered first, so the interface is up. Also
+      // recreates the link-local after a link flap, which clears IPv6 addresses.
+      if (esp_err_t ll_err = esp_netif_create_ip6_linklocal(global_eth_component->eth_netif_); ll_err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_netif_create_ip6_linklocal failed on link-up: %s", esp_err_to_name(ll_err));
+      }
+#endif /* USE_NETWORK_IPV6 */
       // For static IP configurations, GOT_IP event may not fire, so notify IP listeners here
 #if defined(USE_ETHERNET_IP_STATE_LISTENERS) && defined(USE_ETHERNET_MANUAL_IP)
       if (global_eth_component->manual_ip_.has_value()) {
