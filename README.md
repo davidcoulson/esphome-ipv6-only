@@ -101,6 +101,38 @@ external_components:
     components: [gateway_watchdog]
 ```
 
+### IPv6 router in the connection summary
+
+The Wi‑Fi and Ethernet connection summaries (logged on connect and whenever
+`esphome logs` attaches) list each IPv6 default router learned from router
+advertisements, with its remaining lifetime:
+
+```
+[C][wifi]:   IPv6 Router: fe80::21b:17ff:fe00:140 (lifetime 1800 s)
+```
+
+`IPv6 Router: none` means no router advertisement offered a default route.
+
+### wifi_info / ethernet_info
+
+Upstream's `ip_address` text sensor publishes slot 0 of the address array, which
+is always the IPv4 slot, so on an IPv6‑only node it reads `0.0.0.0` (found on
+the first hardware test). The overrides publish IPv4 if set, else the first
+non‑link‑local IPv6 address (ULA or global), else the link‑local. Confirmed on
+the ESP32‑C3: the sensor shows the `fd69:…` ULA.
+
+`ignore_link_local: true` hides `fe80::` addresses from both the main value and
+the `address_0`…`address_4` sub‑sensors. Until a ULA or global address exists
+the main value is then empty rather than the link‑local.
+
+```yaml
+text_sensor:
+  - platform: wifi_info        # or ethernet_info
+    ip_address:
+      name: IP
+      ignore_link_local: true
+```
+
 ## Requirements
 
 | | |
