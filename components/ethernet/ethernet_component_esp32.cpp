@@ -749,7 +749,8 @@ void EthernetComponent::got_ip_event_handler(void *arg, esp_event_base_t event_b
 void EthernetComponent::got_ip6_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id,
                                               void *event_data) {
   ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
-  ESP_LOGV(TAG, "[Ethernet event] ETH Got IPv6: " IPV6STR, IPV62STR(event->ip6_info.ip));
+  // esphome-ipv6-only: INFO, not VERBOSE, so a new IPv6 address is visible at normal log levels.
+  ESP_LOGI(TAG, "IPv6 address " IPV6STR, IPV62STR(event->ip6_info.ip));
   global_eth_component->ipv6_count_ += 1;
 #if defined(USE_ETHERNET_IPV6_ONLY)
   // esphome-ipv6-only: connected on IPv6 alone, no IPv4 address expected.

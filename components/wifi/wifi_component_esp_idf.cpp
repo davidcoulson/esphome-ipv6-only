@@ -930,7 +930,8 @@ void WiFiComponent::wifi_process_event_(IDFWiFiEvent *data) {
 #if USE_NETWORK_IPV6
   } else if (data->event_base == IP_EVENT && data->event_id == IP_EVENT_GOT_IP6) {
     const auto &it = data->data.ip_got_ip6;
-    ESP_LOGV(TAG, "IPv6 address=" IPV6STR, IPV62STR(it.ip6_info.ip));
+    // esphome-ipv6-only: INFO, not VERBOSE, so a new IPv6 address is visible at normal log levels.
+    ESP_LOGI(TAG, "IPv6 address " IPV6STR, IPV62STR(it.ip6_info.ip));
     this->num_ipv6_addresses_++;
 #ifdef USE_WIFI_IP_STATE_LISTENERS
     this->notify_ip_state_listeners_();

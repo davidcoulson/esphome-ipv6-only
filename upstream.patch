@@ -162,7 +162,7 @@
    if (const WiFiAP *config = this->get_selected_sta_(); config && config->has_bssid()) {
      ESP_LOGV(TAG, "  Priority: %d", this->get_sta_priority(config->get_bssid()));
 --- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
-+++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-27 01:48:32.071885214 +0000
++++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-27 08:39:49.209200901 +0000
 @@ -35,6 +35,11 @@
  #include "lwip/apps/sntp.h"
  #include "lwip/dns.h"
@@ -241,7 +241,17 @@
      ESP_LOGV(TAG, "static_ip=" IPSTR " gateway=" IPSTR, IP2STR(&it.ip_info.ip), IP2STR(&it.ip_info.gw));
      this->got_ipv4_address_ = true;
  #ifdef USE_WIFI_IP_STATE_LISTENERS
-@@ -1042,6 +1079,14 @@
+@@ -893,7 +930,8 @@
+ #if USE_NETWORK_IPV6
+   } else if (data->event_base == IP_EVENT && data->event_id == IP_EVENT_GOT_IP6) {
+     const auto &it = data->data.ip_got_ip6;
+-    ESP_LOGV(TAG, "IPv6 address=" IPV6STR, IPV62STR(it.ip6_info.ip));
++    // esphome-ipv6-only: INFO, not VERBOSE, so a new IPv6 address is visible at normal log levels.
++    ESP_LOGI(TAG, "IPv6 address " IPV6STR, IPV62STR(it.ip6_info.ip));
+     this->num_ipv6_addresses_++;
+ #ifdef USE_WIFI_IP_STATE_LISTENERS
+     this->notify_ip_state_listeners_();
+@@ -1042,6 +1080,14 @@
  }
  
  WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
@@ -256,7 +266,7 @@
    if (s_sta_connected && this->got_ipv4_address_) {
  #if USE_NETWORK_IPV6 && (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
      if (this->num_ipv6_addresses_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT) {
-@@ -1051,6 +1096,7 @@
+@@ -1051,6 +1097,7 @@
      return WiFiSTAConnectStatus::CONNECTED;
  #endif /* USE_NETWORK_IPV6 */
    }
@@ -370,7 +380,7 @@
  
    optional<std::array<uint8_t, MAC_ADDRESS_SIZE>> fixed_mac_;
 --- a/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 00:40:09.593969477 +0000
-+++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 08:30:14.591245153 +0000
++++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 08:39:40.094120365 +0000
 @@ -5,6 +5,16 @@
  #include "esphome/core/application.h"
  #include "esphome/core/helpers.h"
@@ -431,9 +441,13 @@
    global_eth_component->connected_ = global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT;
    global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
  #else
-@@ -725,7 +751,10 @@
+@@ -723,9 +749,13 @@
+ void EthernetComponent::got_ip6_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id,
+                                               void *event_data) {
    ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
-   ESP_LOGV(TAG, "[Ethernet event] ETH Got IPv6: " IPV6STR, IPV62STR(event->ip6_info.ip));
+-  ESP_LOGV(TAG, "[Ethernet event] ETH Got IPv6: " IPV6STR, IPV62STR(event->ip6_info.ip));
++  // esphome-ipv6-only: INFO, not VERBOSE, so a new IPv6 address is visible at normal log levels.
++  ESP_LOGI(TAG, "IPv6 address " IPV6STR, IPV62STR(event->ip6_info.ip));
    global_eth_component->ipv6_count_ += 1;
 -#if (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
 +#if defined(USE_ETHERNET_IPV6_ONLY)
@@ -443,7 +457,7 @@
    global_eth_component->connected_ =
        global_eth_component->got_ipv4_address_ && (global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT);
    global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
-@@ -739,27 +768,64 @@
+@@ -739,27 +769,64 @@
  }
  #endif /* USE_NETWORK_IPV6 */
  
@@ -526,7 +540,7 @@
  #endif /* USE_NETWORK_IPV6 */
  }
  
-@@ -768,6 +834,8 @@
+@@ -768,6 +835,8 @@
  #if USE_NETWORK_IPV6
    global_eth_component->ipv6_count_ = 0;
    this->ipv6_setup_done_ = false;
@@ -535,7 +549,7 @@
  #endif /* USE_NETWORK_IPV6 */
    this->connect_begin_ = millis();
    this->status_set_warning(LOG_STR("waiting for IP configuration"));
-@@ -832,10 +900,18 @@
+@@ -832,10 +901,18 @@
    } else
  #endif
    {
@@ -554,7 +568,7 @@
    }
  #if USE_NETWORK_IPV6
    // Attempt to create IPv6 link-local address
-@@ -846,6 +922,9 @@
+@@ -846,6 +923,9 @@
    // - After disconnection/cable unplugged (#10705)
    // We'll retry in finish_connect_() if it fails here.
    err = esp_netif_create_ip6_linklocal(this->eth_netif_);
@@ -564,7 +578,7 @@
    if (err != ESP_OK) {
      if (err == ESP_ERR_ESP_NETIF_INVALID_PARAMS) {
        // This is a programming error, not a transient failure
-@@ -866,6 +945,39 @@
+@@ -866,6 +946,39 @@
    this->status_set_warning();
  }
  
@@ -604,7 +618,7 @@
  void EthernetComponent::dump_connect_params_() {
    if (!this->ethernet_initialized_) {
      ESP_LOGCONFIG(TAG, "  uninitialized/disabled");
-@@ -925,6 +1037,7 @@
+@@ -925,6 +1038,7 @@
    for (int i = 0; i < count; i++) {
      ESP_LOGCONFIG(TAG, "  IPv6: " IPV6STR, IPV62STR(if_ip6s[i]));
    }
