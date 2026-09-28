@@ -21,7 +21,7 @@ web server listen on v6, and ESP‑IDF's mDNS announces AAAA records.
 It also covers the `ethernet` component, a
 small override of the `sntp` component (lwIP's SNTP client resolves server
 names IPv4‑first and never falls back to AAAA), and an IPv6‑capable copy of
-[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog) (now upstream there as v1.2.0).
+[esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog) (now upstream there: IPv6 since v1.2.0, `prefix_router` since v1.3.0).
 
 [esphome/issues#7117]: https://github.com/esphome/issues/issues/7117
 
@@ -120,13 +120,27 @@ Not part of this repo any more: IPv6 support is in
 [esphome-gateway-watchdog](https://github.com/davidcoulson/esphome-gateway-watchdog)
 itself since **v1.2.0**. With no IPv4 gateway it watches the IPv6 default router
 learned from router advertisements, and binds the ping to that interface so
-link‑local echo works. Use it directly:
+link‑local echo works. Use **v1.3.0** or later, with `prefix_router`:
 
 ```yaml
 external_components:
-  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.0
     components: [gateway_watchdog]
+
+gateway_watchdog:
+  prefix_router: true
 ```
+
+**Why `prefix_router`:** the default router is always the router's link‑local
+address (router advertisements come from it), and many routers and firewalls
+don't answer echo requests there. This network's firewall is one of them: it
+ignores pings to `fe80::21b:17ff:fe00:140` but answers on
+`fd69:deca:fbad:4::1`. Watching the link‑local address then reads as 100%
+packet loss forever, so the watchdog never arms. `prefix_router: true` watches
+`::1` in the node's own /64 instead (ULA before global, preferred addresses
+only), and still works when no default router is advertised at all. On
+hardware it logs `watching FD69:DECA:FBAD:4::1 on netif 2`, with 0% packet
+loss. If your router doesn't sit at `::1`, set `target:` to its address.
 
 ### IPv6 router in the connection summary
 
@@ -167,7 +181,7 @@ text_sensor:
 | ESPHome | 2026.9.0 (the fork is a copy of that release's `wifi`, `ethernet` and `sntp` components; see *Rebasing*) |
 | Platform | ESP32 family, ESP‑IDF framework. The Arduino framework on ESP32 shares the same code path and validates, but is untested. |
 | Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`enable_ipv4` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
-| Hardware‑tested | ESP32‑C3, ESP‑IDF 6.1.0, IPv6‑only Wi‑Fi (SLAAC, no DHCPv4): connects, is discovered over mDNS, holds a Home Assistant API connection, takes OTA updates and serves `esphome logs`, learns DNS from the router advertisement, syncs SNTP, and the gateway watchdog (v1.2.0) watches the RA default router, all over IPv6. |
+| Hardware‑tested | ESP32‑C3, ESP‑IDF 6.1.0, IPv6‑only Wi‑Fi (SLAAC, no DHCPv4): connects, is discovered over mDNS, holds a Home Assistant API connection, takes OTA updates and serves `esphome logs`, learns DNS from the router advertisement, syncs SNTP, and the gateway watchdog (v1.3.0, `prefix_router`) watches `::1` in the node's /64 with 0% packet loss, all over IPv6. |
 | Not supported | ESP8266, RP2040, LibreTiny (their status comes from the Arduino `WL_CONNECTED` flag, which itself waits for IPv4). |
 | Network | Router advertisements with a prefix for SLAAC. RDNSS or DHCPv6 "O" flag if the device must resolve names. |
 
@@ -276,7 +290,8 @@ report‑only mode and verbose `wifi`/`sntp` logs. Expected log sequence:
 1. `[wifi] Connected` with only IPv6 addresses listed (the v4 fields show 0.0.0.0)
 2. one `E esp_netif_handlers: invalid static ip` line (expected, see above)
 3. `[sntp] Server 0 '2.pool.ntp.org' -> 2xxx::…` then `Synchronized time`
-4. `[gateway_watchdog] watching fe80::…` (the ND6 default router)
+4. `[gateway_watchdog] watching <prefix>::1 on netif N` (`prefix_router`:
+   `::1` in the node's /64, e.g. `FD69:DECA:FBAD:4::1`)
 
 If `[sntp]` repeats `resolver not ready`, the RAs carry neither RDNSS nor the
 O flag with a DHCPv6 server behind it; fix that on the router or use a literal

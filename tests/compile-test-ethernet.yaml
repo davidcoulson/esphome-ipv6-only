@@ -8,7 +8,7 @@ esp32:
     type: esp-idf
 
 external_components:
-  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.0
     components: [gateway_watchdog]
   - source:
       type: local
@@ -42,6 +42,7 @@ time:
 gateway_watchdog:
   id: gw_wd
   reboot: false
+  prefix_router: true
 
 sensor:
   - platform: gateway_watchdog
