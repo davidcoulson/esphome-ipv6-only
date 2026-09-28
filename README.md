@@ -81,6 +81,19 @@ a literal IPv6 address, or a name in your own DNS with only an AAAA record
 (that last one works even with upstream, because the A lookup then fails and
 lwIP does fall back to AAAA).
 
+### `http_request`
+
+ESP‑IDF's HTTP client resolves with `getaddrinfo(AF_UNSPEC)`, which in lwIP
+also asks for the A record first, so a dual‑stack host resolves to an
+unreachable IPv4 address. The `http_request` override sets the client's
+`addr_type` to `HTTP_ADDR_TYPE_INET6` when `network: enable_ipv4: false`, and
+changes nothing otherwise. This also covers the `http_request` platforms of
+`ota` and `update`. List `http_request` in `external_components` to use it.
+
+The host still needs an AAAA record. github.com and GitHub's release download
+hosts have none, so `update:` checks against GitHub fail on an IPv6‑only
+network unless it has NAT64 + DNS64.
+
 ### Ethernet link-local fix (dual-stack too)
 
 Stock ESPHome tries to create the Ethernet IPv6 link-local address once when
@@ -180,7 +193,7 @@ text_sensor:
 |---|---|
 | ESPHome | 2026.9.0 (the fork is a copy of that release's `wifi`, `ethernet` and `sntp` components; see *Rebasing*) |
 | Platform | ESP32 family, ESP‑IDF framework. The Arduino framework on ESP32 shares the same code path and validates, but is untested. |
-| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`enable_ipv4` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
+| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`enable_ipv4` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp, http_request and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
 | Hardware‑tested | ESP32‑C3, ESP‑IDF 6.1.0, IPv6‑only Wi‑Fi (SLAAC, no DHCPv4): connects, is discovered over mDNS, holds a Home Assistant API connection, takes OTA updates and serves `esphome logs`, learns DNS from the router advertisement, syncs SNTP, and the gateway watchdog (v1.3.0, `prefix_router`) watches `::1` in the node's /64 with 0% packet loss, all over IPv6. |
 | Not supported | ESP8266, RP2040, LibreTiny (their status comes from the Arduino `WL_CONNECTED` flag, which itself waits for IPv4). |
 | Network | Router advertisements with a prefix for SLAAC. RDNSS or DHCPv6 "O" flag if the device must resolve names. |
@@ -190,7 +203,7 @@ text_sensor:
 ```yaml
 external_components:
   - source: github://davidcoulson/esphome-ipv6-only@main
-    components: [network, wifi, wifi_info, sntp]   # add ethernet, ethernet_info as needed
+    components: [network, wifi, wifi_info, sntp]   # add ethernet, ethernet_info, http_request as needed
 
 network:
   enable_ipv6: true
@@ -217,9 +230,9 @@ without `enable_ipv6: true`, with `min_ipv6_addr_count: 0`, or together with a
 - **Only inbound and IPv6‑capable outbound traffic works.** The native API,
   OTA, logs, web server, mDNS and the patched `sntp` are fine. Anything the
   device initiates to an IPv4 address or over a v4‑only protocol does not:
-  `mqtt` to a v4 broker, `wireguard`, `http_request` to v4 hosts. Other
-  components that resolve names go through the same IPv4‑first lwIP default
-  and hit the same problem `sntp` had.
+  `mqtt` to a v4 broker, `wireguard`, `http_request` to v4‑only hosts. Other
+  components that resolve names (e.g. `mqtt`) go through the same IPv4‑first
+  lwIP default and hit the same problem `sntp` and `http_request` had.
 - **Home Assistant** must reach the device over IPv6 and its zeroconf must
   listen on v6. Add the device by its `.local` name or a literal address if
   discovery doesn't find it.
@@ -243,6 +256,7 @@ git clone --depth 1 --branch <release> https://github.com/esphome/esphome
 cp -r esphome/esphome/components/network components/network
 cp -r esphome/esphome/components/wifi components/wifi
 cp -r esphome/esphome/components/sntp components/sntp
+cp -r esphome/esphome/components/http_request components/http_request
 cp -r esphome/esphome/components/ethernet components/ethernet
 cp -r esphome/esphome/components/wifi_info components/wifi_info
 cp -r esphome/esphome/components/ethernet_info components/ethernet_info
@@ -271,8 +285,9 @@ components/network/       full copy of ESPHome 2026.9.0 network + the enable_ipv
 components/wifi/          full copy of ESPHome 2026.9.0 wifi + patch
 components/ethernet/      full copy of ESPHome 2026.9.0 ethernet + patch
 components/sntp/          full copy of ESPHome 2026.9.0 sntp + patch
+components/http_request/  full copy of ESPHome 2026.9.0 http_request + one line
 components/wifi_info/, components/ethernet_info/  ip_address sensor fix
-upstream.patch            the diff against that ESPHome release (network, wifi, ethernet, sntp, wifi_info, ethernet_info)
+upstream.patch            the diff against that ESPHome release (network, wifi, ethernet, sntp, http_request, wifi_info, ethernet_info)
 example.yaml              complete IPv6-only device config
 c3-test.yaml              ESP32-C3 hardware test config (ESP-IDF 6.1.0)
 p4-eth-test.yaml          ESP32-P4 + IP101 Ethernet hardware test config

@@ -1027,3 +1027,18 @@
          for x in range(5):
              if sensor_conf := conf.get(f"address_{x}"):
                  sens = await text_sensor.new_text_sensor(sensor_conf)
+--- a/esphome/components/http_request/http_request_idf.cpp	2026-09-28 06:33:28.378258135 +0000
++++ b/esphome/components/http_request/http_request_idf.cpp	2026-09-28 06:33:36.121201630 +0000
+@@ -85,6 +85,12 @@
+   config.disable_auto_redirect = !this->follow_redirects_;
+   config.max_redirection_count = this->redirect_limit_;
+   config.auth_type = HTTP_AUTH_TYPE_BASIC;
++#ifdef USE_NETWORK_IPV6_ONLY
++  // esphome-ipv6-only: getaddrinfo(AF_UNSPEC) asks lwIP for the A record first
++  // and only falls back to AAAA when there is none, so a dual-stack host
++  // resolves to an IPv4 address this node cannot reach. Ask for AAAA only.
++  config.addr_type = HTTP_ADDR_TYPE_INET6;
++#endif
+   if (secure && this->verify_ssl_) {
+     if (this->ca_certificate_ != nullptr) {
+       config.cert_pem = this->ca_certificate_;
