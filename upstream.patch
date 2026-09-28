@@ -191,7 +191,7 @@
    if (const WiFiAP *config = this->get_selected_sta_(); config && config->has_bssid()) {
      ESP_LOGV(TAG, "  Priority: %d", this->get_sta_priority(config->get_bssid()));
 --- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
-+++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-27 21:46:20.782687768 +0000
++++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-28 08:29:40.914584023 +0000
 @@ -35,6 +35,11 @@
  #include "lwip/apps/sntp.h"
  #include "lwip/dns.h"
@@ -204,10 +204,18 @@
  
  #include "esphome/core/application.h"
  #include "esphome/core/hal.h"
-@@ -572,6 +577,22 @@
-   }
- 
+@@ -574,6 +579,7 @@
    if (!manual_ip.has_value()) {
+     // lwIP starts the SNTP client if it gets an SNTP server from DHCP. We don't need the time, and more importantly,
+     // the built-in SNTP client has a memory leak in certain situations. Disable this feature.
++    // esphome-ipv6-only: also on the IPv6-only path, which enables DHCPv6.
+     // https://github.com/esphome/issues/issues/2299
+     {
+ #if SNTP_GET_SERVERS_FROM_DHCP || SNTP_GET_SERVERS_FROM_DHCPV6
+@@ -584,6 +590,22 @@
+       sntp_servermode_dhcp(false);
+     }
+ 
 +#ifdef USE_NETWORK_IPV6_ONLY
 +    // esphome-ipv6-only: never run the DHCPv4 client. Besides keeping IPv4 off the
 +    // wire, this matters for routing: esp_netif only makes a netif lwIP's default
@@ -224,10 +232,10 @@
 +    }
 +    return true;
 +#else
-     // lwIP starts the SNTP client if it gets an SNTP server from DHCP. We don't need the time, and more importantly,
-     // the built-in SNTP client has a memory leak in certain situations. Disable this feature.
-     // https://github.com/esphome/issues/issues/2299
-@@ -593,6 +614,7 @@
+     // No manual IP is set; use DHCP client
+     if (dhcp_status != ESP_NETIF_DHCP_STARTED) {
+       err = esp_netif_dhcpc_start(s_sta_netif);
+@@ -593,6 +615,7 @@
        return err == ESP_OK;
      }
      return true;
@@ -235,7 +243,7 @@
    }
  
    esp_netif_ip_info_t info;  // struct of ip4_addr_t with ip, netmask, gw
-@@ -829,6 +851,23 @@
+@@ -829,6 +852,23 @@
               (const char *) it.ssid, bssid_buf, it.channel, get_auth_mode_str(it.authmode));
  #endif
      s_sta_connected = true;
@@ -259,7 +267,7 @@
      if (this->state_ == WIFI_COMPONENT_STATE_STA_CONNECTED) {
        // Driver-initiated roam: the WIFI_REASON_ROAMING disconnect was ignored,
        // so the state machine never left STA_CONNECTED.
-@@ -881,9 +920,7 @@
+@@ -881,9 +921,7 @@
  
    } else if (data->event_base == IP_EVENT && data->event_id == IP_EVENT_STA_GOT_IP) {
      const auto &it = data->data.ip_got_ip;
@@ -270,7 +278,7 @@
      ESP_LOGV(TAG, "static_ip=" IPSTR " gateway=" IPSTR, IP2STR(&it.ip_info.ip), IP2STR(&it.ip_info.gw));
      this->got_ipv4_address_ = true;
  #ifdef USE_WIFI_IP_STATE_LISTENERS
-@@ -893,7 +930,8 @@
+@@ -893,7 +931,8 @@
  #if USE_NETWORK_IPV6
    } else if (data->event_base == IP_EVENT && data->event_id == IP_EVENT_GOT_IP6) {
      const auto &it = data->data.ip_got_ip6;
@@ -280,7 +288,7 @@
      this->num_ipv6_addresses_++;
  #ifdef USE_WIFI_IP_STATE_LISTENERS
      this->notify_ip_state_listeners_();
-@@ -1042,6 +1080,14 @@
+@@ -1042,6 +1081,14 @@
  }
  
  WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
@@ -295,7 +303,7 @@
    if (s_sta_connected && this->got_ipv4_address_) {
  #if USE_NETWORK_IPV6 && (USE_NETWORK_MIN_IPV6_ADDR_COUNT > 0)
      if (this->num_ipv6_addresses_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT) {
-@@ -1051,6 +1097,7 @@
+@@ -1051,6 +1098,7 @@
      return WiFiSTAConnectStatus::CONNECTED;
  #endif /* USE_NETWORK_IPV6 */
    }
