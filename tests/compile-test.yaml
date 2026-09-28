@@ -7,7 +7,7 @@ esp32:
     type: esp-idf
 
 external_components:
-  - source: github://davidcoulson/esphome-gateway-watchdog@v1.2.0
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.0
     components: [gateway_watchdog]
   - source:
       type: local
@@ -45,7 +45,7 @@ text_sensor:
 gateway_watchdog:
   id: gw_wd
   reboot: false
-  target: "fe80::1"   # IPv6 literal target accepted by the patched watchdog
+  target: "fe80::1"   # an IPv6 literal target (the Ethernet test covers prefix_router)
 
 sensor:
   - platform: gateway_watchdog
