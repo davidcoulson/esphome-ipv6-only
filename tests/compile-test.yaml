@@ -12,7 +12,7 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [network, wifi, wifi_info, sntp]
+    components: [network, wifi, wifi_info, sntp, http_request]
 
 network:
   enable_ipv6: true
@@ -52,3 +52,12 @@ sensor:
     gateway_watchdog_id: gw_wd
     packet_loss:
       name: Gateway packet loss
+
+# http_request override: requests AAAA only when enable_ipv4 is false.
+http_request:
+
+interval:
+  - interval: 1h
+    then:
+      - http_request.get:
+          url: https://ipv6.google.com/
