@@ -462,9 +462,10 @@ void EthernetComponent::ethernet_lazy_init_() {
   /* attach Ethernet driver to TCP/IP stack */
   err = esp_netif_attach(this->eth_netif_, esp_eth_new_netif_glue(this->eth_handle_));
   ESPHL_ERROR_CHECK(err, "ETH netif attach error");
-#if USE_NETWORK_IPV6
-  // esphome-ipv6-only: MACs with a hardware address filter (the ESP32/P4 internal
-  // EMAC) drop any multicast whose group was not added. lwIP never adds the IPv6
+#if USE_NETWORK_IPV6 && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
+  // esphome-ipv6-only: since IDF 5.5, MACs with a hardware address filter (the
+  // ESP32/P4 internal EMAC) drop any multicast whose group was not added; before,
+  // the EMAC passed all multicast and the ioctl did not exist. lwIP never adds the IPv6
   // all-nodes group, so router advertisements were dropped and SLAAC never ran.
   {
     uint8_t all_nodes[6] = {0x33, 0x33, 0x00, 0x00, 0x00, 0x01};
