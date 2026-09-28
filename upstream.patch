@@ -191,7 +191,7 @@
    if (const WiFiAP *config = this->get_selected_sta_(); config && config->has_bssid()) {
      ESP_LOGV(TAG, "  Priority: %d", this->get_sta_priority(config->get_bssid()));
 --- a/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-16 08:47:05.000000000 +0000
-+++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-28 08:29:40.914584023 +0000
++++ b/esphome/components/wifi/wifi_component_esp_idf.cpp	2026-09-28 08:31:16.746490539 +0000
 @@ -35,6 +35,11 @@
  #include "lwip/apps/sntp.h"
  #include "lwip/dns.h"
@@ -383,7 +383,7 @@
  
    optional<std::array<uint8_t, MAC_ADDRESS_SIZE>> fixed_mac_;
 --- a/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 00:40:09.593969477 +0000
-+++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-27 21:46:20.782998686 +0000
++++ b/esphome/components/ethernet/ethernet_component_esp32.cpp	2026-09-28 13:17:12.585657246 +0000
 @@ -5,6 +5,16 @@
  #include "esphome/core/application.h"
  #include "esphome/core/helpers.h"
@@ -480,7 +480,7 @@
    global_eth_component->connected_ =
        global_eth_component->got_ipv4_address_ && (global_eth_component->ipv6_count_ >= USE_NETWORK_MIN_IPV6_ADDR_COUNT);
    global_eth_component->enable_loop_soon_any_context();  // Enable loop when connection state changes
-@@ -739,27 +781,64 @@
+@@ -739,35 +781,77 @@
  }
  #endif /* USE_NETWORK_IPV6 */
  
@@ -539,7 +539,7 @@
 +    ESP_LOGI(TAG, "IPv6 link-local %s ready", buf);
      this->ipv6_setup_done_ = true;
 +    return true;
-   }
++  }
 +  if (ip6_addr_istentative(state))
 +    return false;  // duplicate address detection still running
 +  if (ip6_addr_isduplicated(state) && !this->ipv6_duplicate_logged_) {
@@ -556,23 +556,28 @@
 +    this->enable_stateless_dhcp6_();
 +  } else {
 +    ESP_LOGW(TAG, "esp_netif_create_ip6_linklocal failed: %s", esp_err_to_name(err));
-+  }
+   }
 +  return false;
 +#else
 +  return true;
  #endif /* USE_NETWORK_IPV6 */
  }
  
-@@ -768,6 +847,8 @@
+ void EthernetComponent::start_connect_() {
+   global_eth_component->got_ipv4_address_ = false;
  #if USE_NETWORK_IPV6
-   global_eth_component->ipv6_count_ = 0;
+-  global_eth_component->ipv6_count_ = 0;
++  // esphome-ipv6-only: recount rather than zero; addresses that survive a
++  // reconnect are not announced again.
++  struct esp_ip6_addr if_ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
++  global_eth_component->ipv6_count_ = esp_netif_get_all_ip6(this->eth_netif_, if_ip6s);
    this->ipv6_setup_done_ = false;
 +  this->ipv6_duplicate_logged_ = false;
 +  this->ipv6_last_attempt_ = 0;
  #endif /* USE_NETWORK_IPV6 */
    this->connect_begin_ = millis();
    this->status_set_warning(LOG_STR("waiting for IP configuration"));
-@@ -832,10 +913,18 @@
+@@ -832,10 +916,18 @@
    } else
  #endif
    {
@@ -591,17 +596,26 @@
    }
  #if USE_NETWORK_IPV6
    // Attempt to create IPv6 link-local address
-@@ -846,6 +935,9 @@
+@@ -845,7 +937,17 @@
+   // - At bootup when link isn't ready (#10281)
    // - After disconnection/cable unplugged (#10705)
    // We'll retry in finish_connect_() if it fails here.
-   err = esp_netif_create_ip6_linklocal(this->eth_netif_);
+-  err = esp_netif_create_ip6_linklocal(this->eth_netif_);
++  // esphome-ipv6-only: keep an existing link-local; recreating it would restart
++  // duplicate address detection.
++  esp_ip6_addr_t link_local;
++  if (esp_netif_get_ip6_linklocal(this->eth_netif_, &link_local) == ESP_OK) {
++    err = ESP_OK;
++  } else {
++    err = esp_netif_create_ip6_linklocal(this->eth_netif_);
++  }
 +  if (err == ESP_OK) {
 +    this->enable_stateless_dhcp6_();
 +  }
    if (err != ESP_OK) {
      if (err == ESP_ERR_ESP_NETIF_INVALID_PARAMS) {
        // This is a programming error, not a transient failure
-@@ -866,6 +958,39 @@
+@@ -866,6 +968,39 @@
    this->status_set_warning();
  }
  
@@ -641,7 +655,7 @@
  void EthernetComponent::dump_connect_params_() {
    if (!this->ethernet_initialized_) {
      ESP_LOGCONFIG(TAG, "  uninitialized/disabled");
-@@ -925,6 +1050,7 @@
+@@ -925,6 +1060,7 @@
    for (int i = 0; i < count; i++) {
      ESP_LOGCONFIG(TAG, "  IPv6: " IPV6STR, IPV62STR(if_ip6s[i]));
    }
