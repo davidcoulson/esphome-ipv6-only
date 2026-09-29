@@ -858,16 +858,17 @@
              if sensor_conf := conf.get(f"address_{x}"):
                  sens = await text_sensor.new_text_sensor(sensor_conf)
 --- a/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:32:11.942192443 +0000
-+++ b/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-27 01:48:32.072752072 +0000
-@@ -19,16 +19,56 @@
++++ b/esphome/components/wifi_info/wifi_info_text_sensor.cpp	2026-09-29 20:15:23.988980746 +0000
+@@ -19,16 +19,57 @@
  
  void IPAddressWiFiInfo::setup() { wifi::global_wifi_component->add_ip_state_listener(this); }
  
 -void IPAddressWiFiInfo::dump_config() { LOG_TEXT_SENSOR("", "IP Address", this); }
 +void IPAddressWiFiInfo::dump_config() {
 +  LOG_TEXT_SENSOR("", "IP Address", this);
-+  if (this->ignore_link_local_)
++  if (this->ignore_link_local_) {
 +    ESP_LOGCONFIG(TAG, "  Ignore link-local: YES");
++  }
 +}
 +
 +// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
@@ -939,16 +940,17 @@
  
  class DNSAddressWifiInfo final : public Component, public text_sensor::TextSensor, public wifi::WiFiIPStateListener {
 --- a/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:32:11.947829881 +0000
-+++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-27 01:48:32.072895126 +0000
-@@ -10,16 +10,56 @@
++++ b/esphome/components/ethernet_info/ethernet_info_text_sensor.cpp	2026-09-29 20:15:24.007371294 +0000
+@@ -10,16 +10,57 @@
  #ifdef USE_ETHERNET_IP_STATE_LISTENERS
  void IPAddressEthernetInfo::setup() { ethernet::global_eth_component->add_ip_state_listener(this); }
  
 -void IPAddressEthernetInfo::dump_config() { LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this); }
 +void IPAddressEthernetInfo::dump_config() {
 +  LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this);
-+  if (this->ignore_link_local_)
++  if (this->ignore_link_local_) {
 +    ESP_LOGCONFIG(TAG, "  Ignore link-local: YES");
++  }
 +}
 +
 +// esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and

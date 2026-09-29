@@ -12,8 +12,9 @@ void IPAddressEthernetInfo::setup() { ethernet::global_eth_component->add_ip_sta
 
 void IPAddressEthernetInfo::dump_config() {
   LOG_TEXT_SENSOR("", "EthernetInfo IPAddress", this);
-  if (this->ignore_link_local_)
+  if (this->ignore_link_local_) {
     ESP_LOGCONFIG(TAG, "  Ignore link-local: YES");
+  }
 }
 
 // esphome-ipv6-only: upstream publishes ips[0], which is always the IPv4 slot and
