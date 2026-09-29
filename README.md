@@ -137,7 +137,7 @@ link‑local echo works. Use **v1.3.0** or later, with `prefix_router`:
 
 ```yaml
 external_components:
-  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.0
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.1
     components: [gateway_watchdog]
 
 gateway_watchdog:

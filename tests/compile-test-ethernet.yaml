@@ -8,7 +8,7 @@ esp32:
     type: esp-idf
 
 external_components:
-  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.0
+  - source: github://davidcoulson/esphome-gateway-watchdog@v1.3.1
     components: [gateway_watchdog]
   - source:
       type: local
