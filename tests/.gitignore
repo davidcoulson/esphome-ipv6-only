@@ -1,0 +1,3 @@
+# Intentionally (almost) empty: the rules live in the repo-root .gitignore,
+# which ignores .esphome/ and secrets.yaml at every depth. Kept tracked only
+# because ESPHome writes a template .gitignore here whenever one is missing.
