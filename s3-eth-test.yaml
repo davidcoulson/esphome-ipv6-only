@@ -63,14 +63,11 @@ logger:
     mdns: DEBUG
 
 api:
-  encryption:
-    key: !secret api_key
   # Ethernet node: no Wi-Fi reboot_timeout, so this is the recovery path.
   reboot_timeout: 300s
 
 ota:
   - platform: esphome
-    password: !secret ota_password
 
 time:
   - platform: sntp

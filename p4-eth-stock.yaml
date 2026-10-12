@@ -1,0 +1,29 @@
+esphome:
+  name: p4-eth-stock
+
+esp32:
+  board: esp32-p4-evboard
+  variant: esp32p4
+  engineering_sample: true
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: 6.1.0
+
+ethernet:
+  type: IP101
+  mdc_pin: GPIO31
+  mdio_pin: GPIO52
+  power_pin: GPIO51
+  clk:
+    mode: CLK_EXT_IN
+    pin: GPIO50
+  phy_addr: 1
+
+logger:
+  level: VERBOSE
+  hardware_uart: UART0
+
+api:
+ota:
+  - platform: esphome
