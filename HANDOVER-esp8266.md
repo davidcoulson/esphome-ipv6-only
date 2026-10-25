@@ -6,6 +6,11 @@ Test module: generic ESP8266 on USB, config `zz-esp8266-v6-test.yaml` on the HA 
 `/config/esphome/ipv6-only-8266/components`). `esp8266-test.yaml` here is the standalone version
 (needs `wifi_ssid`, `wifi_password`, `ota_password` in `secrets.yaml`).
 
+Config and secrets: pull `zz-esp8266-v6-test.yaml`, `common/` and `secrets.yaml` from the HA box with
+`ssh hassio@10.2.3.6` (read-only for that user; `sudo -n cat` works; no sftp, so use `ssh ... cat > local` or
+tar over ssh). Never print `secrets.yaml`. Compile there with
+`sudo docker exec app_5c53de3b_esphome esphome compile /config/esphome/zz-esp8266-v6-test.yaml`.
+
 ## Done (compiles; RAM 43.6%, flash 467 KB of 1 MB)
 - `components/wifi/__init__.py`: `ipv6_only` allowed on ESP8266; ESP32-only sdkconfig options guarded.
 - `components/wifi/wifi_component_esp8266.cpp` (all under `USE_WIFI_IPV6_ONLY`):
