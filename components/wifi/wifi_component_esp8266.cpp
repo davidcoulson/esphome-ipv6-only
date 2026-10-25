@@ -158,6 +158,13 @@ bool WiFiComponent::wifi_sta_ip_config_(const optional<ManualIP> &manual_ip) {
 
   enum dhcp_status dhcp_status = wifi_station_dhcpc_status();
   if (!manual_ip.has_value()) {
+#ifdef USE_WIFI_IPV6_ONLY
+    // esphome-ipv6-only: never run the DHCPv4 client.
+    if (dhcp_status == DHCP_STARTED && !wifi_station_dhcpc_stop()) {
+      ESP_LOGV(TAG, "Stopping DHCP client failed");
+    }
+    return true;
+#endif
     // lwIP starts the SNTP client if it gets an SNTP server from DHCP. We don't need the time, and more importantly,
     // the built-in SNTP client has a memory leak in certain situations. Disable this feature.
     // https://github.com/esphome/issues/issues/2299
@@ -388,7 +395,7 @@ bool WiFiComponent::wifi_sta_connect_(const WiFiAP &ap) {
     return false;
   }
 
-#if USE_NETWORK_IPV6
+#if USE_NETWORK_IPV6 && !defined(USE_WIFI_IPV6_ONLY)
   bool connected = false;
   while (!connected) {
     uint8_t ipv6_addr_count = 0;
@@ -673,6 +680,19 @@ WiFiSTAConnectStatus WiFiComponent::wifi_sta_connect_status_() const {
   // Use if statements with early returns instead of switch to avoid GCC
   // generating a CSWTCH lookup table in .rodata (flash) on ESP8266.
   auto state = static_cast<ESP8266WiFiSTAState>(this->sta_state_);
+#ifdef USE_WIFI_IPV6_ONLY
+  // esphome-ipv6-only: no DHCPv4 lease is coming, so GOT_IP never fires. Connected
+  // once associated and enough IPv6 addresses are up (validation guarantees >= 1).
+  if (state == ESP8266WiFiSTAState::ASSOCIATED) {
+    uint8_t ipv6_addr_count = 0;
+    for (auto addr : addrList) {
+      if (addr.isV6() && addr.ifnumber() == STATION_IF)
+        ipv6_addr_count++;
+    }
+    if (ipv6_addr_count >= USE_NETWORK_MIN_IPV6_ADDR_COUNT)
+      return WiFiSTAConnectStatus::CONNECTED;
+  }
+#endif
   if (state == ESP8266WiFiSTAState::CONNECTED)
     return WiFiSTAConnectStatus::CONNECTED;
   if (state == ESP8266WiFiSTAState::ERROR_NOT_FOUND)
@@ -972,6 +992,27 @@ network::IPAddress WiFiComponent::wifi_gateway_ip_() {
 }
 network::IPAddress WiFiComponent::wifi_dns_ip_(int num) { return network::IPAddress(dns_getserver(num)); }
 bool WiFiComponent::wifi_loop_() {
+#ifdef USE_WIFI_IPV6_ONLY
+  // lwIP sends only a few router solicitations after the link-local address becomes
+  // preferred, then gives up. If they were lost (or sent before the data path was up) there
+  // is no global address and nothing retries. While associated without one, recreate the
+  // link-local every 10 s: that re-runs DAD and re-arms the solicitations.
+  // shortcut: fixed 10 s retry, no backoff; revisit if it disturbs the link.
+  static uint32_t last_rs_kick = 0;
+  if (static_cast<ESP8266WiFiSTAState>(this->sta_state_) == ESP8266WiFiSTAState::ASSOCIATED &&
+      millis() - last_rs_kick > 10000) {
+    last_rs_kick = millis();
+    bool has_global = false;
+    for (auto addr : addrList) {
+      if (addr.isV6() && addr.ifnumber() == STATION_IF && !addr.addr().isLocal())
+        has_global = true;
+    }
+    if (!has_global) {
+      ESP_LOGD(TAG, "No global IPv6 address yet, re-sending router solicitation");
+      netif_create_ip6_linklocal_address(eagle_lwip_getif(STATION_IF), 1);
+    }
+  }
+#endif
   this->process_pending_callbacks_();
   return true;
 }

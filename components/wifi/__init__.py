@@ -546,7 +546,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_FAST_CONNECT, default=False): _fast_connect_schema,
             cv.Optional(CONF_USE_ADDRESS): cv.string_strict,
             cv.Optional(CONF_IPV6_ONLY, default=False): cv.All(
-                cv.boolean, cv.only_on_esp32
+                cv.boolean, cv.only_on([Platform.ESP32, Platform.ESP8266])
             ),
             cv.Optional(CONF_MIN_AUTH_MODE): cv.All(
                 VALIDATE_WIFI_MIN_AUTH_MODE,
@@ -719,8 +719,9 @@ async def to_code(config):
         cg.add_define("USE_NETWORK_IPV6_ONLY")
         # Name resolution without an IPv4 resolver: take DNS servers from the
         # RA RDNSS option (RFC 8106) and from stateless DHCPv6 (RA "O" flag).
-        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
-        add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
+        if CORE.is_esp32:
+            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_RDNSS_MAX_DNS_SERVERS", 2)
+            add_idf_sdkconfig_option("CONFIG_LWIP_IPV6_DHCP6", True)
 
     # The C++ initializers are DEFAULT_REBOOT_TIMEOUT, power save NONE and minimum
     # auth WPA2; skip the setters when the config matches them.
