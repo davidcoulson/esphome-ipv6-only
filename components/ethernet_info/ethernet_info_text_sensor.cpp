@@ -5,7 +5,7 @@
 
 namespace esphome::ethernet_info {
 
-static const char *const TAG = "ethernet_info";
+ESPHOME_LOG_TAG(TAG, "ethernet_info");
 
 #ifdef USE_ETHERNET_IP_STATE_LISTENERS
 void IPAddressEthernetInfo::setup() { ethernet::global_eth_component->add_ip_state_listener(this); }
@@ -58,16 +58,20 @@ void IPAddressEthernetInfo::on_ip_state(const network::IPAddresses &ips, const n
     buf[0] = '\0';  // only a link-local address so far, and it is hidden
   }
   this->publish_state(buf);
+#ifdef ETHERNET_INFO_IP_SENSOR_COUNT
   uint8_t sensor = 0;
   for (const auto &ip : ips) {
-    if (ip.is_set() && !(this->ignore_link_local_ && is_link_local(ip))) {
-      if (this->ip_sensors_[sensor] != nullptr) {
-        ip.str_to(buf);
-        this->ip_sensors_[sensor]->publish_state(buf);
-      }
-      sensor++;
+    if (!ip.is_set() || (this->ignore_link_local_ && is_link_local(ip)))
+      continue;
+    if (sensor == ETHERNET_INFO_IP_SENSOR_COUNT)
+      break;
+    if (this->ip_sensors_[sensor] != nullptr) {
+      ip.str_to(buf);
+      this->ip_sensors_[sensor]->publish_state(buf);
     }
+    sensor++;
   }
+#endif
 }
 
 void DNSAddressEthernetInfo::setup() { ethernet::global_eth_component->add_ip_state_listener(this); }

@@ -13,9 +13,14 @@ class IPAddressEthernetInfo final : public Component,
                                     public text_sensor::TextSensor,
                                     public ethernet::EthernetIPStateListener {
  public:
+  // User provided, not "= default": `new(p) IPAddressEthernetInfo()` would zero-fill .bss that is already zero.
+  IPAddressEthernetInfo() {}
+
   void setup() override;
   void dump_config() override;
+#ifdef ETHERNET_INFO_IP_SENSOR_COUNT
   void add_ip_sensors(uint8_t index, text_sensor::TextSensor *s) { this->ip_sensors_[index] = s; }
+#endif
   // esphome-ipv6-only: never publish fe80:: addresses (main value and address_N).
   void set_ignore_link_local(bool ignore) { this->ignore_link_local_ = ignore; }
 
@@ -24,7 +29,10 @@ class IPAddressEthernetInfo final : public Component,
                    const network::IPAddress &dns2) override;
 
  protected:
-  std::array<text_sensor::TextSensor *, 5> ip_sensors_{};
+#ifdef ETHERNET_INFO_IP_SENSOR_COUNT
+  // Sized to the highest configured address_N
+  std::array<text_sensor::TextSensor *, ETHERNET_INFO_IP_SENSOR_COUNT> ip_sensors_{};
+#endif
   bool ignore_link_local_{false};
 };
 

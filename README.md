@@ -193,7 +193,7 @@ text_sensor:
 |---|---|
 | ESPHome | 2026.9.0 (the fork is a copy of that release's `wifi`, `ethernet` and `sntp` components; see *Rebasing*) |
 | Platform | ESP32 family, ESP‑IDF framework. The Arduino framework on ESP32 shares the same code path and validates, but is untested. |
-| Compile‑tested | ESPHome 2026.9.0 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`enable_ipv4` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp, http_request and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
+| Compile‑tested | ESPHome 2026.11.0b2 with ESP‑IDF 5.5.5 and 6.1.0: `esp32dev` Wi‑Fi (`enable_ipv4` true and false), `esp32-c3-devkitm-1` Wi‑Fi (the hardware test config), `esp32-poe-iso` Ethernet; sntp, http_request and gateway_watchdog overrides included. The esp_netif and lwIP code paths the fork relies on are identical in 5.5 and 6.1. |
 | Hardware‑tested | ESP32‑C3, ESP‑IDF 6.1.0, IPv6‑only Wi‑Fi (SLAAC, no DHCPv4): connects, is discovered over mDNS, holds a Home Assistant API connection, takes OTA updates and serves `esphome logs`, learns DNS from the router advertisement, syncs SNTP, and the gateway watchdog (v1.3.0, `prefix_router`) watches `::1` in the node's /64 with 0% packet loss, all over IPv6. |
 | Not supported | ESP8266, RP2040, LibreTiny (their status comes from the Arduino `WL_CONNECTED` flag, which itself waits for IPv4). |
 | Network | Router advertisements with a prefix for SLAAC. RDNSS or DHCPv6 "O" flag if the device must resolve names. |
@@ -281,11 +281,11 @@ IPv4 in the stack and only stops depending on a lease.
 ## Layout
 
 ```
-components/network/       full copy of ESPHome 2026.9.0 network + the enable_ipv4 option
-components/wifi/          full copy of ESPHome 2026.9.0 wifi + patch
-components/ethernet/      full copy of ESPHome 2026.9.0 ethernet + patch
-components/sntp/          full copy of ESPHome 2026.9.0 sntp + patch
-components/http_request/  full copy of ESPHome 2026.9.0 http_request + one line
+components/network/       full copy of ESPHome 2026.11.0b2 network + the enable_ipv4 option
+components/wifi/          full copy of ESPHome 2026.11.0b2 wifi + patch
+components/ethernet/      full copy of ESPHome 2026.11.0b2 ethernet + patch
+components/sntp/          full copy of ESPHome 2026.11.0b2 sntp + patch
+components/http_request/  full copy of ESPHome 2026.11.0b2 http_request + one line
 components/wifi_info/, components/ethernet_info/  ip_address sensor fix
 upstream.patch            the diff against that ESPHome release (network, wifi, ethernet, sntp, http_request, wifi_info, ethernet_info)
 example.yaml              complete IPv6-only device config

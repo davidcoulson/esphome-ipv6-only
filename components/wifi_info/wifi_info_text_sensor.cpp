@@ -9,7 +9,7 @@
 
 namespace esphome::wifi_info {
 
-static const char *const TAG = "wifi_info";
+ESPHOME_LOG_TAG(TAG, "wifi_info");
 
 #ifdef USE_WIFI_IP_STATE_LISTENERS
 
@@ -67,16 +67,20 @@ void IPAddressWiFiInfo::on_ip_state(const network::IPAddresses &ips, const netwo
     buf[0] = '\0';  // only a link-local address so far, and it is hidden
   }
   this->publish_state(buf);
+#ifdef WIFI_INFO_IP_SENSOR_COUNT
   uint8_t sensor = 0;
   for (const auto &ip : ips) {
-    if (ip.is_set() && !(this->ignore_link_local_ && is_link_local(ip))) {
-      if (this->ip_sensors_[sensor] != nullptr) {
-        ip.str_to(buf);
-        this->ip_sensors_[sensor]->publish_state(buf);
-      }
-      sensor++;
+    if (!ip.is_set() || (this->ignore_link_local_ && is_link_local(ip)))
+      continue;
+    if (sensor == WIFI_INFO_IP_SENSOR_COUNT)
+      break;
+    if (this->ip_sensors_[sensor] != nullptr) {
+      ip.str_to(buf);
+      this->ip_sensors_[sensor]->publish_state(buf);
     }
+    sensor++;
   }
+#endif
 }
 
 /*********************
