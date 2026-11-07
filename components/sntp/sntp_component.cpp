@@ -22,7 +22,7 @@ extern "C" void sntp_setserver(u8_t idx, const ip_addr_t *server);
 
 namespace esphome::sntp {
 
-static const char *const TAG = "sntp";
+ESPHOME_LOG_TAG(TAG, "sntp");
 
 #if defined(USE_ESP32)
 SNTPComponent *SNTPComponent::instance = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
