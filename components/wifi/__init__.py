@@ -79,6 +79,7 @@ from . import wpa2_eap
 _LOGGER = logging.getLogger(__name__)
 
 AUTO_LOAD = ["network"]
+DOMAIN = "wifi"  # ESPHome 2026.11 components (e.g. esp32_ble_tracker) import wifi.DOMAIN
 
 NO_WIFI_VARIANTS = [
     const.VARIANT_ESP32H2,
