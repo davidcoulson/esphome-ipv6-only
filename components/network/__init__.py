@@ -49,6 +49,26 @@ def _validate_ipv6_only(config: ConfigType) -> ConfigType:
 
 CODEOWNERS = ["@esphome/core"]
 AUTO_LOAD = ["mdns"]
+DOMAIN = "network"  # ESPHome 2026.11 components read CORE.config[network.DOMAIN]
+
+
+# ESPHome 2026.11 components call these at import or validation time. Upstream
+# records the request and resolves enable_ipv4/6 from it in final validation;
+# the fork keeps its own explicit enable_ipv4 handling, so these only accept the call.
+def _noop_request(name: str):
+    return lambda config: config
+
+
+def require_ipv4(name: str):
+    return _noop_request(name)
+
+
+def require_ipv6(name: str):
+    return _noop_request(name)
+
+
+def request_ipv4_off(name: str):
+    return _noop_request(name)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,6 +137,16 @@ if (
 
 network_ns = cg.esphome_ns.namespace("network")
 NetworkComponent = network_ns.class_("NetworkComponent", cg.Component)
+
+
+def has_active_interface() -> bool:
+    """Fork stub: the default-route tracking added in ESPHome 2026.11 is not copied."""
+    return False
+
+
+async def register_active_interface_listener(listener: cg.MockObj) -> bool:
+    """Fork stub for 2026.11's API; False makes mdns poll the connected interface."""
+    return False
 IPAddress = network_ns.class_("IPAddress")
 
 
