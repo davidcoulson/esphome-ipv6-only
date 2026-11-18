@@ -560,6 +560,9 @@ async def to_code(config: ConfigType) -> None:
         zephyr_add_prj_conf("NET_TCP_MAX_RECV_WINDOW_SIZE", 2280)
         zephyr_add_prj_conf("NET_TCP_MAX_SEND_WINDOW_SIZE", 2280)
 
+    # ESPHome 2026.11 gates the IPv4 socket, API, OTA and voice code on this define.
+    cg.add_define("USE_NETWORK_IPV4", config[CONF_ENABLE_IPV4])
+
     if (enable_ipv6 := config.get(CONF_ENABLE_IPV6, None)) is not None:
         cg.add_define("USE_NETWORK_IPV6", enable_ipv6)
         if enable_ipv6:
